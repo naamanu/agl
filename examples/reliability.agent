@@ -1,0 +1,20 @@
+agent ops {
+  model: "gpt-4.1-mini"
+  , tools: []
+}
+
+task flaky_fetch(key: String, failures_before_success: Number) -> Obj{data: String} {}
+task draft(notes: String) -> Obj{article: String} {}
+
+pipeline resilient_brief(topic: String, fail_count: Number) -> String {
+  let f = run flaky_fetch with { key: topic, failures_before_success: fail_count } by ops retries 2 on_fail use { data: "fallback for " + topic };
+
+  if f.data == "fallback for " + topic {
+    let d = run draft with { notes: "Fallback path: " + f.data } by ops;
+    return d.article;
+  } else {
+    let d = run draft with { notes: "Fresh path: " + f.data } by ops;
+    return d.article;
+  }
+}
+

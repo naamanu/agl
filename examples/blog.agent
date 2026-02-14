@@ -1,0 +1,19 @@
+agent planner {
+  model: "gpt-4.1"
+  , tools: [web_search]
+}
+
+agent writer {
+  model: "gpt-4.1-mini"
+  , tools: []
+}
+
+task research(topic: String) -> Obj{notes: String} {}
+task draft(notes: String) -> Obj{article: String} {}
+
+pipeline blog_post(topic: String) -> String {
+  let r = run research with { topic: topic } by planner;
+  let d = run draft with { notes: r.notes } by writer;
+  return d.article;
+}
+

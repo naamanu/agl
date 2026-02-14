@@ -1,0 +1,16 @@
+agent triage {
+  model: "gpt-4.1-mini"
+  , tools: []
+}
+
+task extract_intent(message: String) -> Obj{intent: String, urgency: String} {}
+task route(intent: String, urgency: String) -> Obj{queue: String} {}
+task respond(intent: String, queue: String) -> Obj{reply: String} {}
+
+pipeline support_reply(message: String) -> String {
+  let i = run extract_intent with { message: message } by triage;
+  let q = run route with { intent: i.intent, urgency: i.urgency } by triage;
+  let r = run respond with { intent: i.intent, queue: q.queue } by triage;
+  return r.reply;
+}
+

@@ -1,0 +1,12 @@
+agent assistant {
+  model: "gpt-4.1-mini"
+  , tools: []
+}
+
+task llm_complete(prompt: String) -> Obj{text: String} {}
+
+pipeline answer(question: String) -> String {
+  let r = run llm_complete with { prompt: "Answer briefly: " + question } by assistant;
+  return r.text;
+}
+

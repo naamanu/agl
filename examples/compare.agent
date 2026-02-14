@@ -1,0 +1,23 @@
+agent planner {
+  model: "gpt-4.1"
+  , tools: [web_search]
+}
+
+agent reviewer {
+  model: "gpt-4.1-mini"
+  , tools: []
+}
+
+task research(topic: String) -> Obj{notes: String} {}
+task compare(note_a: String, note_b: String) -> Obj{decision: String} {}
+
+pipeline compare_options(query: String) -> String {
+  parallel {
+    let a = run research with { topic: query + " option A" } by planner;
+    let b = run research with { topic: query + " option B" } by planner;
+  } join;
+
+  let c = run compare with { note_a: a.notes, note_b: b.notes } by reviewer;
+  return c.decision;
+}
+

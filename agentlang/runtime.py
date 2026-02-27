@@ -9,6 +9,7 @@ from .ast import (
     Expr,
     IfStmt,
     ListExpr,
+    LiteralExpr,
     ObjExpr,
     ParallelStmt,
     Program,
@@ -21,7 +22,7 @@ from .ast import (
 TaskHandler = Callable[[dict[str, Any], str | None], Any]
 
 
-class RuntimeError(ValueError):
+class AgentRuntimeError(ValueError):
     pass
 
 
@@ -39,7 +40,7 @@ def execute_pipeline(
 ) -> Any:
     pipeline = program.pipelines.get(pipeline_name)
     if pipeline is None:
-        raise RuntimeError(f"Unknown pipeline '{pipeline_name}'.")
+        raise AgentRuntimeError(f"Unknown pipeline '{pipeline_name}'.")
 
     env: dict[str, Any] = dict(inputs)
     try:
@@ -52,11 +53,11 @@ def execute_pipeline(
     except _PipelineReturned as returned:
         return returned.value
 
-    raise RuntimeError(f"Pipeline '{pipeline_name}' completed without return.")
+    raise AgentRuntimeError(f"Pipeline '{pipeline_name}' completed without return.")
 
 
 def _execute_block(
-    statements: list[Stmt],
+    statements: tuple[Stmt, ...],
     env: dict[str, Any],
     task_registry: dict[str, TaskHandler],
     max_workers: int,
@@ -73,15 +74,18 @@ def _execute_block(
         if isinstance(stmt, IfStmt):
             condition = _eval_expr(stmt.condition, env)
             if not isinstance(condition, bool):
-                raise RuntimeError("If condition did not evaluate to Bool.")
-            branch = stmt.then_statements if condition else (stmt.else_statements or [])
+                raise AgentRuntimeError("If condition did not evaluate to Bool.")
+            branch: tuple[Stmt, ...] = (
+                stmt.then_statements if condition
+                else (stmt.else_statements if stmt.else_statements is not None else ())
+            )
             _execute_block(branch, env, task_registry, max_workers)
             continue
 
         if isinstance(stmt, ReturnStmt):
             raise _PipelineReturned(_eval_expr(stmt.expr, env))
 
-        raise RuntimeError(f"Unsupported statement in runtime: {type(stmt).__name__}")
+        raise AgentRuntimeError(f"Unsupported statement in runtime: {type(stmt).__name__}")
 
 
 def _execute_parallel(
@@ -105,40 +109,36 @@ def _execute_run_stmt(
 ) -> Any:
     handler = task_registry.get(stmt.task_name)
     if handler is None:
-        raise RuntimeError(f"No runtime handler registered for task '{stmt.task_name}'.")
+        raise AgentRuntimeError(f"No runtime handler registered for task '{stmt.task_name}'.")
 
-    bound_args = {name: _eval_expr(expr, env) for name, expr in stmt.args.items()}
+    bound_args = {name: _eval_expr(expr, env) for name, expr in stmt.args}
     max_attempts = stmt.retries + 1
-    last_error: Exception | None = None
 
     for attempt in range(max_attempts):
         try:
             return handler(bound_args, stmt.agent_name)
         except Exception as exc:  # noqa: BLE001 - workflow policy decides error handling
-            last_error = exc
             if attempt < max_attempts - 1:
                 continue
             if stmt.on_fail == "use":
                 if stmt.fallback_expr is None:
-                    raise RuntimeError(
+                    raise AgentRuntimeError(
                         f"Task '{stmt.task_name}' has on_fail use without fallback expression."
                     ) from exc
                 return _eval_expr(stmt.fallback_expr, env)
-            raise RuntimeError(
+            raise AgentRuntimeError(
                 f"Task '{stmt.task_name}' failed after {max_attempts} attempts."
             ) from exc
-
-    raise RuntimeError(f"Task '{stmt.task_name}' failed.") from last_error
 
 
 def _eval_expr(expr: Expr, env: dict[str, Any]) -> Any:
     if isinstance(expr, RefExpr):
         if expr.parts[0] not in env:
-            raise RuntimeError(f"Unknown variable '{expr.parts[0]}'.")
+            raise AgentRuntimeError(f"Unknown variable '{expr.parts[0]}'.")
         value = env[expr.parts[0]]
         for field in expr.parts[1:]:
             if not isinstance(value, dict) or field not in value:
-                raise RuntimeError(f"Cannot resolve field access '{'.'.join(expr.parts)}'.")
+                raise AgentRuntimeError(f"Cannot resolve field access '{'.'.join(expr.parts)}'.")
             value = value[field]
         return value
 
@@ -151,13 +151,16 @@ def _eval_expr(expr: Expr, env: dict[str, Any]) -> Any:
             return left == right
         if expr.op == "!=":
             return left != right
-        raise RuntimeError(f"Unsupported operator '{expr.op}'.")
+        raise AgentRuntimeError(f"Unsupported operator '{expr.op}'.")
 
     if isinstance(expr, ObjExpr):
-        return {name: _eval_expr(value, env) for name, value in expr.fields.items()}
+        return {name: _eval_expr(value, env) for name, value in expr.fields}
 
     if isinstance(expr, ListExpr):
         return [_eval_expr(item, env) for item in expr.items]
 
-    return expr.value
+    if isinstance(expr, LiteralExpr):
+        return expr.value
+
+    raise AgentRuntimeError(f"Unsupported expression in runtime: {type(expr).__name__}")
 

@@ -20,7 +20,11 @@ class ListType(TypeExpr):
 
 @dataclass(frozen=True)
 class ObjType(TypeExpr):
-    fields: dict[str, TypeExpr]
+    # Stored as a sorted tuple of (name, type) pairs so the node is hashable.
+    fields: tuple[tuple[str, TypeExpr], ...]
+
+    def field_dict(self) -> dict[str, TypeExpr]:
+        return dict(self.fields)
 
 
 @dataclass(frozen=True)
@@ -33,13 +37,13 @@ class Param:
 class AgentDef:
     name: str
     model: str
-    tools: list[str]
+    tools: tuple[str, ...]
 
 
 @dataclass(frozen=True)
 class TaskDef:
     name: str
-    params: list[Param]
+    params: tuple[Param, ...]
     return_type: TypeExpr
 
 
@@ -55,7 +59,7 @@ class LiteralExpr(Expr):
 
 @dataclass(frozen=True)
 class RefExpr(Expr):
-    parts: list[str]
+    parts: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -67,12 +71,13 @@ class BinaryExpr(Expr):
 
 @dataclass(frozen=True)
 class ObjExpr(Expr):
-    fields: dict[str, Expr]
+    # Stored as a tuple of (name, expr) pairs so the node is hashable.
+    fields: tuple[tuple[str, Expr], ...]
 
 
 @dataclass(frozen=True)
 class ListExpr(Expr):
-    items: list[Expr]
+    items: tuple[Expr, ...]
 
 
 @dataclass(frozen=True)
@@ -84,7 +89,8 @@ class Stmt:
 class RunStmt(Stmt):
     target: str
     task_name: str
-    args: dict[str, Expr]
+    # Stored as a tuple of (name, expr) pairs so the node is hashable.
+    args: tuple[tuple[str, Expr], ...]
     agent_name: str | None
     retries: int
     on_fail: str
@@ -93,14 +99,14 @@ class RunStmt(Stmt):
 
 @dataclass(frozen=True)
 class ParallelStmt(Stmt):
-    branches: list[RunStmt]
+    branches: tuple[RunStmt, ...]
 
 
 @dataclass(frozen=True)
 class IfStmt(Stmt):
     condition: Expr
-    then_statements: list[Stmt]
-    else_statements: list[Stmt] | None
+    then_statements: tuple[Stmt, ...]
+    else_statements: tuple[Stmt, ...] | None
 
 
 @dataclass(frozen=True)
@@ -111,9 +117,9 @@ class ReturnStmt(Stmt):
 @dataclass(frozen=True)
 class PipelineDef:
     name: str
-    params: list[Param]
+    params: tuple[Param, ...]
     return_type: TypeExpr
-    statements: list[Stmt]
+    statements: tuple[Stmt, ...]
 
 
 @dataclass(frozen=True)

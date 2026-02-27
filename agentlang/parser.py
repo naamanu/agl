@@ -93,17 +93,44 @@ class Parser:
         self.expect("AGENT")
         name = self.expect("ID").value
         self.expect("LBRACE")
-        self.expect("MODEL")
-        self.expect("COLON")
-        model = self.expect("STRING").value
-        self.expect("COMMA")
-        self.expect("TOOLS")
-        self.expect("COLON")
-        tools = self.parse_tool_list()
+
+        model: str | None = None
+        tools: tuple[str, ...] | None = None
+        seen: set[str] = set()
+
+        while self.current().kind != "RBRACE":
+            field_token = self.current()
+            if field_token.kind == "MODEL":
+                if "model" in seen:
+                    raise ParseError("Duplicate 'model' field in agent.")
+                self.advance()
+                self.expect("COLON")
+                model = self.expect("STRING").value
+                seen.add("model")
+            elif field_token.kind == "TOOLS":
+                if "tools" in seen:
+                    raise ParseError("Duplicate 'tools' field in agent.")
+                self.advance()
+                self.expect("COLON")
+                tools = self.parse_tool_list()
+                seen.add("tools")
+            else:
+                raise ParseError(
+                    f"Unknown agent field '{field_token.value}' at "
+                    f"{field_token.line}:{field_token.col}"
+                )
+            self.match("COMMA")
+
         self.expect("RBRACE")
+
+        if model is None:
+            raise ParseError(f"Agent '{name}' is missing required field 'model'.")
+        if tools is None:
+            raise ParseError(f"Agent '{name}' is missing required field 'tools'.")
+
         return AgentDef(name=name, model=model, tools=tools)
 
-    def parse_tool_list(self) -> list[str]:
+    def parse_tool_list(self) -> tuple[str, ...]:
         self.expect("LBRACKET")
         tools: list[str] = []
         if self.current().kind != "RBRACKET":
@@ -111,7 +138,7 @@ class Parser:
             while self.match("COMMA"):
                 tools.append(self.expect("ID").value)
         self.expect("RBRACKET")
-        return tools
+        return tuple(tools)
 
     def parse_task(self) -> TaskDef:
         self.expect("TASK")
@@ -141,10 +168,10 @@ class Parser:
             statements=statements,
         )
 
-    def parse_params(self) -> list[Param]:
+    def parse_params(self) -> tuple[Param, ...]:
         params: list[Param] = []
         if self.current().kind == "RPAREN":
-            return params
+            return tuple(params)
         while True:
             name = self.expect("ID").value
             self.expect("COLON")
@@ -152,7 +179,7 @@ class Parser:
             params.append(Param(name=name, type_expr=type_expr))
             if not self.match("COMMA"):
                 break
-        return params
+        return tuple(params)
 
     def parse_type(self) -> TypeExpr:
         token = self.current()
@@ -163,16 +190,16 @@ class Parser:
         if token.kind == "ID" and token.value == "Obj":
             self.advance()
             self.expect("LBRACE")
-            fields: dict[str, TypeExpr] = {}
+            field_items: list[tuple[str, TypeExpr]] = []
             if self.current().kind != "RBRACE":
                 while True:
                     field_name = self.expect("ID").value
                     self.expect("COLON")
-                    fields[field_name] = self.parse_type()
+                    field_items.append((field_name, self.parse_type()))
                     if not self.match("COMMA"):
                         break
             self.expect("RBRACE")
-            return ObjType(fields=fields)
+            return ObjType(fields=tuple(field_items))
 
         if token.kind == "ID" and token.value == "List":
             self.advance()
@@ -183,13 +210,13 @@ class Parser:
 
         raise ParseError(f"Invalid type at {token.line}:{token.col}: {token.kind}")
 
-    def parse_block(self) -> list[Stmt]:
+    def parse_block(self) -> tuple[Stmt, ...]:
         self.expect("LBRACE")
         statements: list[Stmt] = []
         while self.current().kind != "RBRACE":
             statements.append(self.parse_stmt())
         self.expect("RBRACE")
-        return statements
+        return tuple(statements)
 
     def parse_stmt(self) -> Stmt:
         token = self.current()
@@ -219,7 +246,7 @@ class Parser:
         self.expect("IF")
         condition = self.parse_expr()
         then_statements = self.parse_block()
-        else_statements: list[Stmt] | None = None
+        else_statements: tuple[Stmt, ...] | None = None
         if self.match("ELSE"):
             else_statements = self.parse_block()
         return IfStmt(
@@ -239,7 +266,7 @@ class Parser:
         self.expect("RBRACE")
         self.expect("JOIN")
         self.expect("SEMI")
-        return ParallelStmt(branches=branches)
+        return ParallelStmt(branches=tuple(branches))
 
     def parse_run_stmt(self) -> RunStmt:
         self.expect("LET")
@@ -306,18 +333,18 @@ class Parser:
             fallback_expr=fallback_expr,
         )
 
-    def parse_arg_map(self) -> dict[str, Expr]:
+    def parse_arg_map(self) -> tuple[tuple[str, Expr], ...]:
         self.expect("LBRACE")
-        args: dict[str, Expr] = {}
+        items: list[tuple[str, Expr]] = []
         if self.current().kind != "RBRACE":
             while True:
                 key = self.expect("ID").value
                 self.expect("COLON")
-                args[key] = self.parse_expr()
+                items.append((key, self.parse_expr()))
                 if not self.match("COMMA"):
                     break
         self.expect("RBRACE")
-        return args
+        return tuple(items)
 
     def parse_expr(self) -> Expr:
         return self.parse_equality()
@@ -374,10 +401,10 @@ class Parser:
             if token.value == "false":
                 self.advance()
                 return LiteralExpr(value=False)
-            parts = [self.advance().value]
+            parts: list[str] = [self.advance().value]
             while self.match("DOT"):
                 parts.append(self.expect("ID").value)
-            return RefExpr(parts=parts)
+            return RefExpr(parts=tuple(parts))
 
         raise ParseError(
             f"Invalid expression token {token.kind} at {token.line}:{token.col}"
@@ -385,16 +412,16 @@ class Parser:
 
     def parse_object_literal(self) -> ObjExpr:
         self.expect("LBRACE")
-        fields: dict[str, Expr] = {}
+        items: list[tuple[str, Expr]] = []
         if self.current().kind != "RBRACE":
             while True:
                 key = self.expect("ID").value
                 self.expect("COLON")
-                fields[key] = self.parse_expr()
+                items.append((key, self.parse_expr()))
                 if not self.match("COMMA"):
                     break
         self.expect("RBRACE")
-        return ObjExpr(fields=fields)
+        return ObjExpr(fields=tuple(items))
 
     def parse_list_literal(self) -> ListExpr:
         self.expect("LBRACKET")
@@ -405,10 +432,9 @@ class Parser:
                 if not self.match("COMMA"):
                     break
         self.expect("RBRACKET")
-        return ListExpr(items=items)
+        return ListExpr(items=tuple(items))
 
 
 def parse_program(source: str) -> Program:
     parser = Parser(tokens=lex(source))
     return parser.parse_program()
-

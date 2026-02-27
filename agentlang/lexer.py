@@ -100,9 +100,53 @@ def lex(source: str) -> list[Token]:
     return tokens
 
 
+_SIMPLE_ESCAPES: dict[str, str] = {
+    "n": "\n",
+    "t": "\t",
+    "r": "\r",
+    "\\": "\\",
+    '"': '"',
+    "'": "'",
+    "0": "\0",
+}
+
+
 def _decode_string(token: str) -> str:
     body = token[1:-1]
-    return bytes(body, "utf-8").decode("unicode_escape")
+    result: list[str] = []
+    i = 0
+    while i < len(body):
+        ch = body[i]
+        if ch != "\\":
+            result.append(ch)
+            i += 1
+            continue
+        i += 1
+        if i >= len(body):
+            raise LexError("Unterminated escape sequence in string literal.")
+        esc = body[i]
+        if esc in _SIMPLE_ESCAPES:
+            result.append(_SIMPLE_ESCAPES[esc])
+        elif esc == "u":
+            if i + 4 >= len(body):
+                raise LexError("Incomplete \\uXXXX escape sequence.")
+            hex_digits = body[i + 1 : i + 5]
+            if not all(c in "0123456789abcdefABCDEF" for c in hex_digits):
+                raise LexError(f"Invalid \\uXXXX escape: \\u{hex_digits}")
+            result.append(chr(int(hex_digits, 16)))
+            i += 4
+        elif esc == "U":
+            if i + 8 >= len(body):
+                raise LexError("Incomplete \\UXXXXXXXX escape sequence.")
+            hex_digits = body[i + 1 : i + 9]
+            if not all(c in "0123456789abcdefABCDEF" for c in hex_digits):
+                raise LexError(f"Invalid \\UXXXXXXXX escape: \\U{hex_digits}")
+            result.append(chr(int(hex_digits, 16)))
+            i += 8
+        else:
+            raise LexError(f"Unknown escape sequence: \\{esc}")
+        i += 1
+    return "".join(result)
 
 
 def _advance_position(text: str, line: int, col: int) -> tuple[int, int]:

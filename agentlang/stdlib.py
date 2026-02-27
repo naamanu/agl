@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 from .adapters import (
     OpenAIAdapterError,
@@ -12,8 +12,7 @@ from .adapters import (
     format_search_hits,
 )
 from .ast import AgentDef, Program
-
-TaskHandler = Callable[[dict[str, Any], str | None], Any]
+from .runtime import AgentRuntimeError, TaskHandler
 
 _flaky_attempts: dict[str, int] = {}
 
@@ -140,7 +139,7 @@ def default_task_registry(
         attempts_so_far = _flaky_attempts.get(key, 0)
         if attempts_so_far < failures_before_success:
             _flaky_attempts[key] = attempts_so_far + 1
-            raise RuntimeError(
+            raise AgentRuntimeError(
                 f"Transient failure for key '{key}' "
                 f"({attempts_so_far + 1}/{failures_before_success})"
             )
@@ -172,7 +171,7 @@ def default_task_registry(
 def _resolve_config(adapter_mode: str | None) -> RuntimeAdapterConfig:
     mode = (adapter_mode or os.getenv("AGENTLANG_ADAPTER", "mock")).strip().lower()
     if mode not in {"mock", "live"}:
-        raise RuntimeError("Adapter mode must be one of: mock, live.")
+        raise AgentRuntimeError("Adapter mode must be one of: mock, live.")
 
     default_model = os.getenv("AGENTLANG_DEFAULT_MODEL", "gpt-4.1-mini")
     web_max_results = int(os.getenv("AGENTLANG_WEB_RESULTS", "5"))
@@ -191,7 +190,7 @@ def _build_openai_client(config: RuntimeAdapterConfig) -> OpenAIResponsesClient 
 
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
-        raise RuntimeError("OPENAI_API_KEY is required when adapter mode is 'live'.")
+        raise AgentRuntimeError("OPENAI_API_KEY is required when adapter mode is 'live'.")
 
     base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
     return OpenAIResponsesClient(
@@ -223,9 +222,9 @@ def _complete_live(
     system: str | None,
 ) -> str:
     if client is None:
-        raise RuntimeError("OpenAI client was not initialized.")
+        raise AgentRuntimeError("OpenAI client was not initialized.")
     try:
         return client.complete(model=model, prompt=prompt, system=system, max_output_tokens=700)
     except OpenAIAdapterError as exc:
-        raise RuntimeError(f"LLM call failed: {exc}") from exc
+        raise AgentRuntimeError(f"LLM call failed: {exc}") from exc
 

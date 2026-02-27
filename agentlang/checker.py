@@ -40,7 +40,7 @@ def _check_pipeline(program: Program, pipeline: PipelineDef) -> None:
 def _check_block(
     program: Program,
     pipeline: PipelineDef,
-    statements: list[Stmt],
+    statements: tuple[Stmt, ...],
     env: dict[str, TypeExpr],
 ) -> bool:
     saw_return = False
@@ -116,9 +116,6 @@ def _check_run_stmt(program: Program, stmt: RunStmt, env: dict[str, TypeExpr]) -
     if stmt.agent_name is not None and stmt.agent_name not in program.agents:
         raise TypeCheckError(f"Unknown agent '{stmt.agent_name}'.")
 
-    if stmt.retries < 0:
-        raise TypeCheckError("Retries cannot be negative.")
-
     if stmt.on_fail not in {"abort", "use"}:
         raise TypeCheckError(f"Unsupported on_fail policy '{stmt.on_fail}'.")
 
@@ -136,10 +133,10 @@ def _check_run_stmt(program: Program, stmt: RunStmt, env: dict[str, TypeExpr]) -
             )
 
     expected_params = {param.name: param.type_expr for param in task.params}
-    provided_params = set(stmt.args)
+    provided_args = dict(stmt.args)
 
-    missing = set(expected_params) - provided_params
-    extra = provided_params - set(expected_params)
+    missing = set(expected_params) - set(provided_args)
+    extra = set(provided_args) - set(expected_params)
 
     if missing:
         raise TypeCheckError(f"Task '{task.name}' missing args: {sorted(missing)}")
@@ -147,7 +144,7 @@ def _check_run_stmt(program: Program, stmt: RunStmt, env: dict[str, TypeExpr]) -
         raise TypeCheckError(f"Task '{task.name}' received unknown args: {sorted(extra)}")
 
     for param_name, expected_type in expected_params.items():
-        actual_type = _infer_expr_type(stmt.args[param_name], env)
+        actual_type = _infer_expr_type(provided_args[param_name], env)
         if not _is_assignable(actual_type, expected_type):
             raise TypeCheckError(
                 f"Task '{task.name}' arg '{param_name}' has type {actual_type}, "
@@ -175,13 +172,14 @@ def _infer_expr_type(expr: Expr, env: dict[str, TypeExpr]) -> TypeExpr:
         for field in expr.parts[1:]:
             if not isinstance(current, ObjType):
                 raise TypeCheckError(f"Cannot access field '{field}' on non-object type {current}.")
-            if field not in current.fields:
+            fields = current.field_dict()
+            if field not in fields:
                 raise TypeCheckError(f"Field '{field}' does not exist on type {current}.")
-            current = current.fields[field]
+            current = fields[field]
         return current
 
     if isinstance(expr, ObjExpr):
-        return ObjType({name: _infer_expr_type(value, env) for name, value in expr.fields.items()})
+        return ObjType(tuple((name, _infer_expr_type(value, env)) for name, value in expr.fields))
 
     if isinstance(expr, ListExpr):
         if not expr.items:
@@ -218,11 +216,13 @@ def _is_assignable(actual: TypeExpr, expected: TypeExpr) -> bool:
         return _is_assignable(actual.item_type, expected.item_type)
 
     if isinstance(actual, ObjType) and isinstance(expected, ObjType):
-        if set(actual.fields) != set(expected.fields):
+        actual_fields = actual.field_dict()
+        expected_fields = expected.field_dict()
+        if set(actual_fields) != set(expected_fields):
             return False
         return all(
-            _is_assignable(actual.fields[field], expected.fields[field])
-            for field in expected.fields
+            _is_assignable(actual_fields[field], expected_fields[field])
+            for field in expected_fields
         )
 
     return False

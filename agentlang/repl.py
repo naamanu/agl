@@ -2,12 +2,20 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
-try:
-    import readline  # noqa: F401 - side-effect: enables arrow-key history in input()
-except ImportError:
-    pass
+from prompt_toolkit import PromptSession
+from prompt_toolkit.formatted_text import HTML
+from prompt_toolkit.history import FileHistory
+from rich import box
+from rich.columns import Columns
+from rich.console import Console
+from rich.json import JSON as RichJSON
+from rich.markup import escape
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
 
 from .ast import ListType, ObjType, PrimitiveType, TypeExpr
 from .checker import TypeCheckError, check_program
@@ -16,29 +24,9 @@ from .parser import ParseError, parse_program
 from .runtime import AgentRuntimeError, execute_pipeline
 from .stdlib import default_task_registry
 
-BANNER = "AgentLang REPL  —  type :help for commands, Ctrl-D to exit"
+console = Console()
 
-_HELP = """\
-Definitions (accumulate across inputs):
-  agent  <name> {{ model: "...", tools: [...] }}
-  task   <name>(<params>) -> <type> {{}}
-  pipeline <name>(<params>) -> <type> {{ ... }}
-
-Commands:
-  :run  <pipeline> [json]   Run a pipeline (json defaults to {{}})
-  :load <path>              Load a .agent file into the session
-  :agents                   List defined agents
-  :tasks                    List defined tasks
-  :pipelines                List defined pipelines
-  :adapter mock|live        Switch adapter mode (currently {adapter})
-  :reset                    Clear all definitions
-  :help                     Show this help
-  :quit / :exit             Exit the REPL
-
-Note: task handlers are provided by the stdlib adapter.  Custom task
-names outside the built-in set will raise a runtime error on :run.\
-"""
-
+_HISTORY_FILE = Path.home() / ".agentlang_history"
 
 # ---------------------------------------------------------------------------
 # Session
@@ -53,17 +41,12 @@ class ReplSession:
     max_workers: int = 8
     _entries: list[tuple[str, frozenset[str]]] = field(default_factory=list)
 
-    # ------------------------------------------------------------------
-    # Fragment management
-    # ------------------------------------------------------------------
-
     def add_fragment(self, text: str) -> tuple[list[str], list[str]]:
-        """Parse *text*, merge it into the session, type-check the whole program.
+        """Parse *text*, merge into the session, type-check the whole program.
 
-        Returns (new_names, redefined_names) on success.
-        Raises LexError, ParseError, or TypeCheckError on failure (session unchanged).
+        Returns (added_names, redefined_names) on success.
+        Raises LexError, ParseError, or TypeCheckError on failure (unchanged).
         """
-        # Step 1 – parse the fragment alone to discover what names it defines.
         mini = parse_program(text)
         new_keys: frozenset[str] = frozenset(
             {f"agent:{n}" for n in mini.agents}
@@ -73,7 +56,6 @@ class ReplSession:
         if not new_keys:
             raise ParseError("No definitions found in input.")
 
-        # Step 2 – identify overlapping (redefined) names.
         redefined: list[str] = []
         kept: list[tuple[str, frozenset[str]]] = []
         for frag_text, frag_keys in self._entries:
@@ -83,15 +65,11 @@ class ReplSession:
             else:
                 kept.append((frag_text, frag_keys))
 
-        # Step 3 – reconstruct and type-check the merged program.
         candidate_entries = kept + [(text, new_keys)]
         full_source = "\n\n".join(t for t, _ in candidate_entries)
-        full_program = parse_program(full_source)  # should not raise (no dupes now)
-        check_program(full_program)  # raises TypeCheckError if inconsistent
+        full_program = parse_program(full_source)
+        check_program(full_program)
 
-        # Step 4 – commit.
-        # Compute "added" before mutating: names in the new fragment that were
-        # not present anywhere in the session before this call.
         all_old_keys: frozenset[str] = frozenset().union(*(k for _, k in self._entries))
         added = sorted(k.split(":", 1)[1] for k in new_keys - all_old_keys)
         self._entries = candidate_entries
@@ -117,14 +95,17 @@ class ReplSession:
 
 def run_repl(adapter_mode: str = "mock", max_workers: int = 8) -> None:
     session = ReplSession(adapter_mode=adapter_mode, max_workers=max_workers)
-    print(BANNER)
-    print()
+    prompt_session: PromptSession = PromptSession(  # type: ignore[type-arg]
+        history=FileHistory(str(_HISTORY_FILE))
+    )
+
+    _print_banner()
 
     while True:
         try:
-            raw = _read_block()
+            raw = _read_block(prompt_session)
         except EOFError:
-            print("\nBye!")
+            console.print("\n[dim]Bye![/dim]")
             break
 
         line = raw.strip()
@@ -133,9 +114,75 @@ def run_repl(adapter_mode: str = "mock", max_workers: int = 8) -> None:
 
         if line.startswith(":"):
             if _handle_command(line, session):
-                break  # :quit / :exit returned True
+                break
         else:
             _handle_definition(line, session)
+
+
+# ---------------------------------------------------------------------------
+# Banner & help
+# ---------------------------------------------------------------------------
+
+
+def _print_banner() -> None:
+    title = Text.assemble(
+        ("AgentLang ", "bold cyan"),
+        ("REPL", "bold white"),
+    )
+    subtitle = Text.assemble(
+        ("type ", "dim"),
+        (":help", "cyan"),
+        (" for commands  •  Ctrl-D to exit", "dim"),
+    )
+    console.print(
+        Panel(
+            subtitle,
+            title=title,
+            border_style="cyan dim",
+            expand=False,
+            padding=(0, 2),
+        )
+    )
+    console.print()
+
+
+def _print_help(adapter_mode: str) -> None:
+    table = Table(box=box.SIMPLE, show_header=False, padding=(0, 2))
+    table.add_column(style="cyan bold", no_wrap=True)
+    table.add_column(style="dim")
+
+    commands = [
+        (":run <pipeline> [json]", "Execute a pipeline  (json defaults to {})"),
+        (":load <path>",           "Load a .agent file into the session"),
+        (":agents",                "List defined agents"),
+        (":tasks",                 "List defined tasks"),
+        (":pipelines",             "List defined pipelines"),
+        (f":adapter mock|live",    f"Switch adapter mode  (currently [cyan]{adapter_mode}[/cyan])"),
+        (":reset",                 "Clear all definitions"),
+        (":help",                  "Show this help"),
+        (":quit / :exit",          "Exit the REPL"),
+    ]
+    for cmd, desc in commands:
+        table.add_row(cmd, desc)
+
+    defs = Text.assemble(
+        ("agent  ", "cyan bold"), ("<name> { model: \"...\", tools: [...] }\n", "dim"),
+        ("task   ", "cyan bold"), ("<name>(<params>) -> <type> {}\n",           "dim"),
+        ("pipeline ", "cyan bold"), ("<name>(<params>) -> <type> { ... }",      "dim"),
+    )
+
+    console.print(
+        Panel(
+            Columns([defs, table], equal=False, expand=False),
+            title="[bold]Help[/bold]",
+            border_style="dim",
+            padding=(1, 2),
+        )
+    )
+    console.print(
+        "[dim]Note: task handlers come from the stdlib adapter. "
+        "Custom task names outside the built-in set will raise a runtime error on :run.[/dim]"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -143,25 +190,28 @@ def run_repl(adapter_mode: str = "mock", max_workers: int = 8) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _read_block() -> str:
+def _read_block(prompt_session: PromptSession) -> str:  # type: ignore[type-arg]
     """Read one complete block (brace-balanced) or a single command line."""
     try:
-        first = input(">>> ")
+        first: str = prompt_session.prompt(
+            HTML("<ansibrightcyan><b>>>> </b></ansibrightcyan>")
+        )
     except KeyboardInterrupt:
-        print()
+        console.print()
         return ""
 
     stripped = first.strip()
-    # Commands and comment-only lines are single-line.
     if stripped.startswith(":") or not stripped or _brace_depth(first) == 0:
         return first
 
     lines = [first]
     while True:
         try:
-            cont = input("... ")
+            cont: str = prompt_session.prompt(
+                HTML("<ansigray>... </ansigray>")
+            )
         except KeyboardInterrupt:
-            print()
+            console.print()
             return ""
         lines.append(cont)
         if _brace_depth("\n".join(lines)) <= 0:
@@ -178,7 +228,7 @@ def _brace_depth(text: str) -> int:
         ch = text[i]
         if in_string:
             if ch == "\\" and i + 1 < len(text):
-                i += 2  # skip escaped character
+                i += 2
                 continue
             if ch == '"':
                 in_string = False
@@ -202,59 +252,59 @@ def _handle_definition(text: str, session: ReplSession) -> None:
     try:
         added, redefined = session.add_fragment(text)
     except LexError as exc:
-        print(f"  Lex error: {exc}")
+        console.print(f"  [bold red]Lex error:[/] {exc}")
         return
     except ParseError as exc:
-        print(f"  Parse error: {exc}")
+        console.print(f"  [bold red]Parse error:[/] {exc}")
         return
     except TypeCheckError as exc:
-        print(f"  Type error: {exc}")
+        console.print(f"  [bold red]Type error:[/] {exc}")
         return
 
     for name in redefined:
-        print(f"  Redefined '{name}'")
+        console.print(f"  [dim]Redefined[/dim] [yellow]{name}[/yellow]")
     for name in added:
-        print(f"  Defined '{name}'")
+        console.print(f"  [dim]Defined[/dim] [bold green]{name}[/bold green]")
 
 
 # ---------------------------------------------------------------------------
-# Command handling  (:run, :load, :agents, etc.)
+# Command handling
 # ---------------------------------------------------------------------------
 
 
 def _handle_command(line: str, session: ReplSession) -> bool:
-    """Handle a :-command. Returns True if the REPL should exit."""
+    """Returns True if the REPL should exit."""
     parts = line.split(None, 2)
     cmd = parts[0].lower()
 
     if cmd in (":quit", ":exit"):
-        print("Bye!")
+        console.print("[dim]Bye![/dim]")
         return True
 
     if cmd == ":help":
-        print(_HELP.format(adapter=session.adapter_mode))
+        _print_help(session.adapter_mode)
         return False
 
     if cmd == ":reset":
         session.reset()
-        print("  Session cleared.")
+        console.print("[dim]  Session cleared.[/dim]")
         return False
 
     if cmd == ":adapter":
         if len(parts) < 2:
-            print("  Usage: :adapter mock|live")
+            console.print("  [dim]Usage:[/dim] :adapter mock|live")
             return False
         mode = parts[1].lower()
         if mode not in {"mock", "live"}:
-            print("  Adapter must be 'mock' or 'live'.")
+            console.print("  [bold red]Adapter must be[/] 'mock' or 'live'.")
             return False
         session.adapter_mode = mode
-        print(f"  Adapter mode: {mode}")
+        console.print(f"  [dim]Adapter mode:[/dim] [cyan]{mode}[/cyan]")
         return False
 
     if cmd == ":load":
         if len(parts) < 2:
-            print("  Usage: :load <path>")
+            console.print("  [dim]Usage:[/dim] :load <path>")
             return False
         _cmd_load(parts[1], session)
         return False
@@ -265,13 +315,13 @@ def _handle_command(line: str, session: ReplSession) -> bool:
 
     if cmd == ":run":
         if len(parts) < 2:
-            print("  Usage: :run <pipeline> [json]")
+            console.print("  [dim]Usage:[/dim] :run <pipeline> [json]")
             return False
         raw_json = parts[2] if len(parts) > 2 else "{}"
         _cmd_run(parts[1], raw_json, session)
         return False
 
-    print(f"  Unknown command '{cmd}'. Type :help for commands.")
+    console.print(f"  [bold red]Unknown command[/] '{cmd}'. Type :help for commands.")
     return False
 
 
@@ -279,53 +329,75 @@ def _cmd_load(path: str, session: ReplSession) -> None:
     try:
         text = open(path, encoding="utf-8").read()
     except OSError as exc:
-        print(f"  Cannot read '{path}': {exc}")
+        console.print(f"  [bold red]Cannot read[/] '{path}': {exc}")
         return
 
     try:
         added, redefined = session.add_fragment(text)
     except LexError as exc:
-        print(f"  Lex error in '{path}': {exc}")
+        console.print(f"  [bold red]Lex error[/] in '{path}': {exc}")
         return
     except ParseError as exc:
-        print(f"  Parse error in '{path}': {exc}")
+        console.print(f"  [bold red]Parse error[/] in '{path}': {exc}")
         return
     except TypeCheckError as exc:
-        print(f"  Type error in '{path}': {exc}")
+        console.print(f"  [bold red]Type error[/] in '{path}': {exc}")
         return
 
     na = len(added)
-    summary = f"{na} definition{'s' if na != 1 else ''} added"
-    print(f"  Loaded '{path}'  ({summary})")
+    summary = f"[dim]{na} definition{'s' if na != 1 else ''} added[/dim]"
+    console.print(f"  [green]Loaded[/green] '[bold]{path}[/bold]'  ({summary})")
     for name in added:
-        print(f"    + {name}")
+        console.print(f"    [green]+[/green] [green]{name}[/green]")
     if redefined:
-        print(f"  Redefined: {', '.join(sorted(redefined))}")
+        names = ", ".join(f"[yellow]{escape(n)}[/yellow]" for n in sorted(redefined))
+        console.print(f"  [yellow]Redefined:[/yellow] {names}")
 
 
 def _cmd_list(session: ReplSession, kind: str) -> None:
     program = session.program()
     if program is None:
-        print("  (empty session — nothing defined yet)")
+        console.print("[dim]  (empty session — nothing defined yet)[/dim]")
         return
 
     items: dict[str, Any] = getattr(program, kind)
     if not items:
-        print(f"  No {kind} defined.")
+        console.print(f"[dim]  No {kind} defined.[/dim]")
         return
 
+    table = Table(box=box.SIMPLE, show_header=False, padding=(0, 1))
+
     if kind == "agents":
+        table.add_column(style="bold cyan", no_wrap=True)
+        table.add_column(no_wrap=True)
+        table.add_column(no_wrap=True)
         for name, agent in items.items():
-            tools = ", ".join(agent.tools) if agent.tools else "none"
-            print(f"  {name}  model={agent.model}  tools=[{tools}]")
+            tools_str = escape(", ".join(agent.tools)) if agent.tools else "[dim]none[/dim]"
+            table.add_row(
+                name,
+                f"[dim]model=[/dim][cyan]{escape(agent.model)}[/cyan]",
+                f"[dim]tools=[[/dim]{tools_str}[dim]][/dim]",
+            )
+
     elif kind == "tasks":
+        table.add_column(style="dim",      no_wrap=True)
+        table.add_column(style="bold",     no_wrap=True)
+        table.add_column(no_wrap=True)
         for name, task in items.items():
             sig = _fmt_params(task.params)
-            print(f"  task {name}({sig}) -> {_fmt_type(task.return_type)}")
+            ret = _fmt_type(task.return_type)
+            table.add_row("task", name, f"({sig}) [dim]->[/dim] {ret}")
+
     elif kind == "pipelines":
+        table.add_column(style="dim",      no_wrap=True)
+        table.add_column(style="bold",     no_wrap=True)
+        table.add_column(no_wrap=True)
         for name, pipe in items.items():
             sig = _fmt_params(pipe.params)
-            print(f"  pipeline {name}({sig}) -> {_fmt_type(pipe.return_type)}")
+            ret = _fmt_type(pipe.return_type)
+            table.add_row("pipeline", name, f"({sig}) [dim]->[/dim] {ret}")
+
+    console.print(table)
 
 
 def _cmd_run(pipeline_name: str, raw_json: str, session: ReplSession) -> None:
@@ -334,17 +406,20 @@ def _cmd_run(pipeline_name: str, raw_json: str, session: ReplSession) -> None:
         if not isinstance(inputs, dict):
             raise ValueError("JSON input must be an object.")
     except ValueError as exc:
-        print(f"  Invalid JSON: {exc}")
+        console.print(f"  [bold red]Invalid JSON:[/] {exc}")
         return
 
     program = session.program()
     if program is None:
-        print("  No definitions in session. Use :load or define something first.")
+        console.print("[dim]  No definitions in session. Use :load or define something first.[/dim]")
         return
 
     if pipeline_name not in program.pipelines:
-        available = ", ".join(program.pipelines) or "(none)"
-        print(f"  Unknown pipeline '{pipeline_name}'. Available: {available}")
+        available = ", ".join(f"[cyan]{escape(n)}[/cyan]" for n in program.pipelines) or "[dim]none[/dim]"
+        console.print(
+            f"  [bold red]Unknown pipeline[/] '[bold]{pipeline_name}[/bold]'."
+            f" Available: {available}"
+        )
         return
 
     try:
@@ -358,16 +433,16 @@ def _cmd_run(pipeline_name: str, raw_json: str, session: ReplSession) -> None:
             max_workers=session.max_workers,
         )
     except TypeCheckError as exc:
-        print(f"  Type error: {exc}")
+        console.print(f"  [bold red]Type error:[/] {exc}")
         return
     except AgentRuntimeError as exc:
-        print(f"  Runtime error: {exc}")
+        console.print(f"  [bold red]Runtime error:[/] {exc}")
         return
     except Exception as exc:  # noqa: BLE001
-        print(f"  Error: {exc}")
+        console.print(f"  [bold red]Error:[/] {exc}")
         return
 
-    print(json.dumps(result, indent=2))
+    console.print(Panel(RichJSON(json.dumps(result)), border_style="dim green", expand=False))
 
 
 # ---------------------------------------------------------------------------
@@ -377,14 +452,18 @@ def _cmd_run(pipeline_name: str, raw_json: str, session: ReplSession) -> None:
 
 def _fmt_type(t: TypeExpr) -> str:
     if isinstance(t, PrimitiveType):
-        return t.name
+        return f"[yellow]{t.name}[/yellow]"
     if isinstance(t, ListType):
-        return f"List[{_fmt_type(t.item_type)}]"
+        return f"[dim]List[[/dim]{_fmt_type(t.item_type)}[dim]][/dim]"
     if isinstance(t, ObjType):
-        inner = ", ".join(f"{k}: {_fmt_type(v)}" for k, v in t.fields)
-        return f"Obj{{{inner}}}"
+        inner = "[dim], [/dim]".join(
+            f"[dim]{k}:[/dim] {_fmt_type(v)}" for k, v in t.fields
+        )
+        return f"[dim]Obj{{[/dim]{inner}[dim]}}[/dim]"
     return repr(t)
 
 
 def _fmt_params(params: Any) -> str:
-    return ", ".join(f"{p.name}: {_fmt_type(p.type_expr)}" for p in params)
+    return "[dim], [/dim]".join(
+        f"[dim]{p.name}:[/dim] {_fmt_type(p.type_expr)}" for p in params
+    )

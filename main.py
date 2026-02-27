@@ -5,37 +5,73 @@ import json
 import sys
 
 from agentlang import check_program, default_task_registry, execute_pipeline, parse_program
+from agentlang.repl import run_repl
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Run AgentLang pipelines from .agent source files."
+    top = argparse.ArgumentParser(
+        description="AgentLang CLI — run pipelines or start the interactive REPL.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  python main.py run examples/blog.agent blog_post --input '{\"topic\":\"AI\"}'\n"
+            "  python main.py repl --adapter mock"
+        ),
     )
-    parser.add_argument("source", help="Path to .agent file")
-    parser.add_argument("pipeline", help="Pipeline name to execute")
-    parser.add_argument(
+    sub = top.add_subparsers(dest="command", required=True)
+
+    # ------------------------------------------------------------------ run
+    run_p = sub.add_parser(
+        "run",
+        help="Execute a pipeline from a .agent source file.",
+    )
+    run_p.add_argument("source", help="Path to .agent file")
+    run_p.add_argument("pipeline", help="Pipeline name to execute")
+    run_p.add_argument(
         "--input",
         default="{}",
-        help='JSON object for pipeline inputs, e.g. \'{"topic":"agent memory"}\'',
+        help='JSON object of pipeline inputs, e.g. \'{"topic":"agent memory"}\'',
     )
-    parser.add_argument(
+    run_p.add_argument(
         "--workers",
         type=int,
         default=8,
-        help="Maximum worker threads for runnable tasks",
+        help="Maximum worker threads for parallel tasks (default: 8)",
     )
-    parser.add_argument(
+    run_p.add_argument(
         "--adapter",
         choices=["mock", "live"],
         default=None,
-        help=(
-            "Task adapter mode. "
-            "mock = deterministic local handlers, "
-            "live = OpenAI + real tool adapters."
-        ),
+        help="Task adapter: mock (deterministic stubs) or live (OpenAI + tools)",
     )
-    args = parser.parse_args()
 
+    # ------------------------------------------------------------------ repl
+    repl_p = sub.add_parser(
+        "repl",
+        help="Start the interactive AgentLang REPL.",
+    )
+    repl_p.add_argument(
+        "--adapter",
+        choices=["mock", "live"],
+        default=None,
+        help="Task adapter mode (default: mock, or AGENTLANG_ADAPTER env var)",
+    )
+    repl_p.add_argument(
+        "--workers",
+        type=int,
+        default=8,
+        help="Maximum worker threads for parallel tasks (default: 8)",
+    )
+
+    args = top.parse_args()
+
+    if args.command == "run":
+        _cmd_run(args)
+    elif args.command == "repl":
+        _cmd_repl(args)
+
+
+def _cmd_run(args: argparse.Namespace) -> None:
     try:
         payload = json.loads(args.input)
         if not isinstance(payload, dict):
@@ -56,15 +92,22 @@ def main() -> None:
             task_registry=default_task_registry(program, adapter_mode=args.adapter),
             max_workers=args.workers,
         )
-    except Exception as exc:  # noqa: BLE001 - CLI should show concise failures.
+    except Exception as exc:  # noqa: BLE001 - CLI shows concise failures.
         print(f"Execution error: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
 
     print(json.dumps({"result": result}, indent=2))
 
 
+def _cmd_repl(args: argparse.Namespace) -> None:
+    run_repl(
+        adapter_mode=args.adapter or "mock",
+        max_workers=args.workers,
+    )
+
+
 def _read_text(path: str) -> str:
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         return f.read()
 
 

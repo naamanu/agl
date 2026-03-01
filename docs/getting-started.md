@@ -52,8 +52,13 @@ Arguments:
 - `source`: path to `.agent` file
 - `pipeline`: pipeline name in that file
 - `--input`: JSON object mapped to pipeline params
-- `--workers`: max thread workers for parallel blocks
+- `--workers`: max thread workers for parallel blocks (must be `>= 1`)
 - `--adapter`: runtime adapter mode (`mock` or `live`)
+
+Input validation is strict:
+- required pipeline inputs must be present
+- unknown extra input keys are rejected
+- input values must match declared DSL types (`String`, `Number`, `Bool`, `List[...]`, `Obj{...}`)
 
 ## Quick Examples
 
@@ -77,4 +82,3 @@ If `OPENAI_API_KEY` is missing in live mode, execution fails with:
 ```text
 Execution error: OPENAI_API_KEY is required when adapter mode is 'live'.
 ```
-

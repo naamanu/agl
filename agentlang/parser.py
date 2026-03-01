@@ -106,10 +106,17 @@ class Parser:
     def parse_tool_list(self) -> list[str]:
         self.expect("LBRACKET")
         tools: list[str] = []
+        seen: set[str] = set()
         if self.current().kind != "RBRACKET":
-            tools.append(self.expect("ID").value)
+            first = self.expect("ID").value
+            tools.append(first)
+            seen.add(first)
             while self.match("COMMA"):
-                tools.append(self.expect("ID").value)
+                tool = self.expect("ID").value
+                if tool in seen:
+                    raise ParseError(f"Duplicate tool '{tool}' in tools list.")
+                tools.append(tool)
+                seen.add(tool)
         self.expect("RBRACKET")
         return tools
 
@@ -143,13 +150,17 @@ class Parser:
 
     def parse_params(self) -> list[Param]:
         params: list[Param] = []
+        seen: set[str] = set()
         if self.current().kind == "RPAREN":
             return params
         while True:
             name = self.expect("ID").value
+            if name in seen:
+                raise ParseError(f"Duplicate parameter '{name}'.")
             self.expect("COLON")
             type_expr = self.parse_type()
             params.append(Param(name=name, type_expr=type_expr))
+            seen.add(name)
             if not self.match("COMMA"):
                 break
         return params
@@ -167,6 +178,8 @@ class Parser:
             if self.current().kind != "RBRACE":
                 while True:
                     field_name = self.expect("ID").value
+                    if field_name in fields:
+                        raise ParseError(f"Duplicate object type field '{field_name}'.")
                     self.expect("COLON")
                     fields[field_name] = self.parse_type()
                     if not self.match("COMMA"):
@@ -312,6 +325,8 @@ class Parser:
         if self.current().kind != "RBRACE":
             while True:
                 key = self.expect("ID").value
+                if key in args:
+                    raise ParseError(f"Duplicate argument '{key}' in run call.")
                 self.expect("COLON")
                 args[key] = self.parse_expr()
                 if not self.match("COMMA"):
@@ -389,6 +404,8 @@ class Parser:
         if self.current().kind != "RBRACE":
             while True:
                 key = self.expect("ID").value
+                if key in fields:
+                    raise ParseError(f"Duplicate object literal field '{key}'.")
                 self.expect("COLON")
                 fields[key] = self.parse_expr()
                 if not self.match("COMMA"):
@@ -411,4 +428,3 @@ class Parser:
 def parse_program(source: str) -> Program:
     parser = Parser(tokens=lex(source))
     return parser.parse_program()
-

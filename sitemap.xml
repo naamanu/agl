@@ -1,67 +1,67 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
-         <loc>https://nanaadjeimanu.github.io/agentlang/</loc>
+         <loc>https://naamanu.github.io/agl/</loc>
          <lastmod>2026-03-02</lastmod>
     </url>
     <url>
-         <loc>https://nanaadjeimanu.github.io/agentlang/contributing/</loc>
+         <loc>https://naamanu.github.io/agl/contributing/</loc>
          <lastmod>2026-03-02</lastmod>
     </url>
     <url>
-         <loc>https://nanaadjeimanu.github.io/agentlang/advanced/semantics/</loc>
+         <loc>https://naamanu.github.io/agl/advanced/semantics/</loc>
          <lastmod>2026-03-02</lastmod>
     </url>
     <url>
-         <loc>https://nanaadjeimanu.github.io/agentlang/concepts/agents/</loc>
+         <loc>https://naamanu.github.io/agl/concepts/agents/</loc>
          <lastmod>2026-03-02</lastmod>
     </url>
     <url>
-         <loc>https://nanaadjeimanu.github.io/agentlang/concepts/parallel/</loc>
+         <loc>https://naamanu.github.io/agl/concepts/parallel/</loc>
          <lastmod>2026-03-02</lastmod>
     </url>
     <url>
-         <loc>https://nanaadjeimanu.github.io/agentlang/concepts/pipelines/</loc>
+         <loc>https://naamanu.github.io/agl/concepts/pipelines/</loc>
          <lastmod>2026-03-02</lastmod>
     </url>
     <url>
-         <loc>https://nanaadjeimanu.github.io/agentlang/concepts/retry/</loc>
+         <loc>https://naamanu.github.io/agl/concepts/retry/</loc>
          <lastmod>2026-03-02</lastmod>
     </url>
     <url>
-         <loc>https://nanaadjeimanu.github.io/agentlang/concepts/tasks/</loc>
+         <loc>https://naamanu.github.io/agl/concepts/tasks/</loc>
          <lastmod>2026-03-02</lastmod>
     </url>
     <url>
-         <loc>https://nanaadjeimanu.github.io/agentlang/concepts/types/</loc>
+         <loc>https://naamanu.github.io/agl/concepts/types/</loc>
          <lastmod>2026-03-02</lastmod>
     </url>
     <url>
-         <loc>https://nanaadjeimanu.github.io/agentlang/reference/adapters/</loc>
+         <loc>https://naamanu.github.io/agl/reference/adapters/</loc>
          <lastmod>2026-03-02</lastmod>
     </url>
     <url>
-         <loc>https://nanaadjeimanu.github.io/agentlang/reference/cli/</loc>
+         <loc>https://naamanu.github.io/agl/reference/cli/</loc>
          <lastmod>2026-03-02</lastmod>
     </url>
     <url>
-         <loc>https://nanaadjeimanu.github.io/agentlang/reference/examples/</loc>
+         <loc>https://naamanu.github.io/agl/reference/examples/</loc>
          <lastmod>2026-03-02</lastmod>
     </url>
     <url>
-         <loc>https://nanaadjeimanu.github.io/agentlang/reference/language/</loc>
+         <loc>https://naamanu.github.io/agl/reference/language/</loc>
          <lastmod>2026-03-02</lastmod>
     </url>
     <url>
-         <loc>https://nanaadjeimanu.github.io/agentlang/reference/runtime/</loc>
+         <loc>https://naamanu.github.io/agl/reference/runtime/</loc>
          <lastmod>2026-03-02</lastmod>
     </url>
     <url>
-         <loc>https://nanaadjeimanu.github.io/agentlang/tutorial/first-pipeline/</loc>
+         <loc>https://naamanu.github.io/agl/tutorial/first-pipeline/</loc>
          <lastmod>2026-03-02</lastmod>
     </url>
     <url>
-         <loc>https://nanaadjeimanu.github.io/agentlang/tutorial/quickstart/</loc>
+         <loc>https://naamanu.github.io/agl/tutorial/quickstart/</loc>
          <lastmod>2026-03-02</lastmod>
     </url>
 </urlset>

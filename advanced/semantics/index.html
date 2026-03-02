@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <meta name="generator" content="mkdocs-1.6.1, mkdocs-terminal-4.8.0">
+    
+    <meta name="description" content="A tiny DSL for agentic workflows — define agents, typed tasks, and pipelines."> 
+     
+    
+    <link rel="canonical" href="https://nanaadjeimanu.github.io/agentlang/advanced/semantics/"><link rel="icon" type="image/png" sizes="192x192" href="../../img/android-chrome-192x192.png" />
+<link rel="icon" type="image/png" sizes="512x512" href="../../img/android-chrome-512x512.png" />
+<link rel="apple-touch-icon" sizes="180x180" href="../../img/apple-touch-icon.png" />
+<link rel="shortcut icon" type="image/png" sizes="48x48" href="../../img/favicon.ico" />
+<link rel="icon" type="image/png" sizes="16x16" href="../../img/favicon-16x16.png" />
+<link rel="icon" type="image/png" sizes="32x32" href="../../img/favicon-32x32.png" />
+
+
+    
+ 
+<title>Formal Semantics - AgentLang</title>
+
+
+<link href="../../css/fontawesome/css/fontawesome.min.css" rel="stylesheet">
+<link href="../../css/fontawesome/css/solid.min.css" rel="stylesheet">
+<link href="../../css/normalize.css" rel="stylesheet">
+<link href="../../css/terminal.css" rel="stylesheet">
+<link href="../../css/theme.css" rel="stylesheet">
+<link href="../../css/theme.tile_grid.css" rel="stylesheet">
+<link href="../../css/theme.footer.css" rel="stylesheet">
+<!-- dark color palette -->
+<link href="../../css/palettes/dark.css" rel="stylesheet">
+
+<!-- page layout -->
+<style>
+/* initially set page layout to a one column grid */
+.terminal-mkdocs-main-grid {
+    display: grid;
+    grid-column-gap: 1.4em;
+    grid-template-columns: auto;
+    grid-template-rows: auto;
+}
+
+/*  
+*   when side navigation is not hidden, use a two column grid.  
+*   if the screen is too narrow, fall back to the initial one column grid layout.
+*   in this case the main content will be placed under the navigation panel. 
+*/
+@media only screen and (min-width: 70em) {
+    .terminal-mkdocs-main-grid {
+        grid-template-columns: 4fr 9fr;
+    }
+}</style>
+
+
+
+     
+    
+    
+
+    
+    <!-- search css support -->
+<link href="../../css/search/bootstrap-modal.css" rel="stylesheet">
+<!-- search scripts -->
+<script>
+    var base_url = "../..",
+    shortcuts = "{}";
+</script>
+<script src="../../js/jquery/jquery-1.10.1.min.js" defer></script>
+<script src="../../js/bootstrap/bootstrap.min.js" defer></script>
+<script src="../../js/mkdocs/base.js" defer></script>
+    
+    
+    
+    
+    <script src="../../javascripts/mathjax.js"></script>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.min.js"></script>
+    
+    <script src="../../search/main.js"></script>
+    
+
+    
+</head>
+
+<body class="terminal"><div class="container">
+    <div class="terminal-nav">
+        <header class="terminal-logo">
+            <div id="mkdocs-terminal-site-name" class="logo terminal-prompt"><a href="https://nanaadjeimanu.github.io/agentlang/" class="no-style">AgentLang</a></div>
+        </header>
+        
+        <nav class="terminal-menu">
+            
+            <ul vocab="https://schema.org/" typeof="BreadcrumbList">
+                
+                
+                <li property="itemListElement" typeof="ListItem">
+                    <a href="../.." class="menu-item " property="item" typeof="WebPage">
+                        <span property="name">Home</span>
+                    </a>
+                    <meta property="position" content="0">
+                </li>
+                
+                
+                
+                
+                
+                
+                
+                
+                
+                
+                <li property="itemListElement" typeof="ListItem">
+                    <a href="../../contributing/" class="menu-item " property="item" typeof="WebPage">
+                        <span property="name">Contributing</span>
+                    </a>
+                    <meta property="position" content="1">
+                </li>
+                
+                    
+                    
+
+
+<li property="itemListElement" typeof="ListItem">
+    <a href="#" class="menu-item" data-toggle="modal" data-target="#mkdocs_search_modal" property="item" typeof="SearchAction">
+        <i aria-hidden="true" class="fa fa-search"></i> <span property="name">Search</span>
+    </a>
+    <meta property="position" content="2">
+</li>
+                    
+            </ul>
+            
+        </nav>
+    </div>
+</div>
+        
+    <div class="container">
+        <div class="terminal-mkdocs-main-grid"><aside id="terminal-mkdocs-side-panel"><nav>
+    <ul class="terminal-mkdocs-side-nav-items">
+        
+          <li class="terminal-mkdocs-side-nav-li">
+    
+    
+    
+        
+        
+            <a class="terminal-mkdocs-side-nav-item" href="../..">Home</a>
+        
+    
+    
+    
+       </li>
+        
+          <li class="terminal-mkdocs-side-nav-li">
+    
+        
+        
+        
+            
+    
+        
+        
+            
+            
+            <span class="
+        
+    terminal-mkdocs-side-nav-item terminal-mkdocs-side-nav-section-no-index">Tutorial</span>
+        
+    
+    
+        
+        
+            <ul class="terminal-mkdocs-side-nav-li-ul">
+        
+            
+            
+             
+                <li class="terminal-mkdocs-side-nav-li-ul-li">
+    
+        
+        
+            <a class="terminal-mkdocs-side-nav-item" href="../../tutorial/quickstart/">Quick Start</a>
+        
+    
+    </li>
+            
+        
+            
+            
+             
+                <li class="terminal-mkdocs-side-nav-li-ul-li">
+    
+        
+        
+            <a class="terminal-mkdocs-side-nav-item" href="../../tutorial/first-pipeline/">Your First Pipeline</a>
+        
+    
+    </li>
+            
+            
+    </ul>
+        
+    
+       </li>
+        
+          <li class="terminal-mkdocs-side-nav-li">
+    
+        
+        
+        
+            
+    
+        
+        
+            
+            
+            <span class="
+        
+    terminal-mkdocs-side-nav-item terminal-mkdocs-side-nav-section-no-index">Concepts</span>
+        
+    
+    
+        
+        
+            <ul class="terminal-mkdocs-side-nav-li-ul">
+        
+            
+            
+             
+                <li class="terminal-mkdocs-side-nav-li-ul-li">
+    
+        
+        
+            <a class="terminal-mkdocs-side-nav-item" href="../../concepts/agents/">Agents</a>
+        
+    
+    </li>
+            
+        
+            
+            
+             
+                <li class="terminal-mkdocs-side-nav-li-ul-li">
+    
+        
+        
+            <a class="terminal-mkdocs-side-nav-item" href="../../concepts/tasks/">Tasks</a>
+        
+    
+    </li>
+            
+        
+            
+            
+             
+                <li class="terminal-mkdocs-side-nav-li-ul-li">
+    
+        
+        
+            <a class="terminal-mkdocs-side-nav-item" href="../../concepts/pipelines/">Pipelines</a>
+        
+    
+    </li>
+            
+        
+            
+            
+             
+                <li class="terminal-mkdocs-side-nav-li-ul-li">
+    
+        
+        
+            <a class="terminal-mkdocs-side-nav-item" href="../../concepts/types/">The Type System</a>
+        
+    
+    </li>
+            
+        
+            
+            
+             
+                <li class="terminal-mkdocs-side-nav-li-ul-li">
+    
+        
+        
+            <a class="terminal-mkdocs-side-nav-item" href="../../concepts/parallel/">Parallel Execution</a>
+        
+    
+    </li>
+            
+        
+            
+            
+             
+                <li class="terminal-mkdocs-side-nav-li-ul-li">
+    
+        
+        
+            <a class="terminal-mkdocs-side-nav-item" href="../../concepts/retry/">Retry & Fallback</a>
+        
+    
+    </li>
+            
+            
+    </ul>
+        
+    
+       </li>
+        
+          <li class="terminal-mkdocs-side-nav-li">
+    
+        
+        
+        
+            
+    
+        
+        
+            
+            
+            <span class="
+        
+    terminal-mkdocs-side-nav-item terminal-mkdocs-side-nav-section-no-index">Reference</span>
+        
+    
+    
+        
+        
+            <ul class="terminal-mkdocs-side-nav-li-ul">
+        
+            
+            
+             
+                <li class="terminal-mkdocs-side-nav-li-ul-li">
+    
+        
+        
+            <a class="terminal-mkdocs-side-nav-item" href="../../reference/language/">Language Reference</a>
+        
+    
+    </li>
+            
+        
+            
+            
+             
+                <li class="terminal-mkdocs-side-nav-li-ul-li">
+    
+        
+        
+            <a class="terminal-mkdocs-side-nav-item" href="../../reference/cli/">CLI Reference</a>
+        
+    
+    </li>
+            
+        
+            
+            
+             
+                <li class="terminal-mkdocs-side-nav-li-ul-li">
+    
+        
+        
+            <a class="terminal-mkdocs-side-nav-item" href="../../reference/adapters/">Adapters</a>
+        
+    
+    </li>
+            
+        
+            
+            
+             
+                <li class="terminal-mkdocs-side-nav-li-ul-li">
+    
+        
+        
+            <a class="terminal-mkdocs-side-nav-item" href="../../reference/runtime/">Runtime & Typing</a>
+        
+    
+    </li>
+            
+        
+            
+            
+             
+                <li class="terminal-mkdocs-side-nav-li-ul-li">
+    
+        
+        
+            <a class="terminal-mkdocs-side-nav-item" href="../../reference/examples/">Examples</a>
+        
+    
+    </li>
+            
+            
+    </ul>
+        
+    
+       </li>
+        
+          <li class="terminal-mkdocs-side-nav-li">
+    
+        
+        
+        
+            
+    
+        
+        <span class="
+        
+    terminal-mkdocs-side-nav-item--active terminal-mkdocs-side-nav-section-no-index">Advanced</span>
+    
+    
+        
+        
+            <ul class="terminal-mkdocs-side-nav-li-ul">
+        
+            
+            
+             
+                <li class="terminal-mkdocs-side-nav-li-ul-li">
+    
+        
+        <span class="terminal-mkdocs-side-nav-item--active">Formal Semantics</span>
+    
+    </li>
+            
+            
+    </ul>
+        
+    
+       </li>
+        
+          <li class="terminal-mkdocs-side-nav-li">
+    
+    
+    
+        
+        
+            <a class="terminal-mkdocs-side-nav-item" href="../../contributing/">Contributing</a>
+        
+    
+    
+    
+       </li>
+        
+    </ul>
+</nav><hr>
+<nav>
+    <ul>
+        <li><a href="#formal-semantics">Formal Semantics</a></li>
+        <li><a href="#1-abstract-syntax">1. Abstract Syntax</a></li><li><a href="#2-static-semantics">2. Static Semantics</a></li><li><a href="#3-dynamic-semantics">3. Dynamic Semantics</a></li><li><a href="#4-determinism">4. Determinism</a></li>
+    </ul>
+</nav>
+</aside>
+            <main id="terminal-mkdocs-main-content">
+<section id="mkdocs-terminal-content">
+    <h1 id="formal-semantics">Formal Semantics<a class="headerlink" href="#formal-semantics" title="Permanent link">&para;</a></h1>
+<p>This page gives a precise mathematical account of AgentLang v0: abstract syntax, static typing rules, and dynamic (small-step) semantics.</p>
+<h2 id="1-abstract-syntax">1. Abstract Syntax<a class="headerlink" href="#1-abstract-syntax" title="Permanent link">&para;</a></h2>
+<p>A program is a triple of agent definitions, task signatures, and pipeline definitions:</p>
+<div class="arithmatex">\[P ::= \langle A, T, W \rangle\]</div>
+<p>where <span class="arithmatex">\(A\)</span> is the set of agent definitions, <span class="arithmatex">\(T\)</span> the set of task signatures, and <span class="arithmatex">\(W\)</span> the set of pipeline definitions.</p>
+<p>A task signature declares its input parameters and return type:</p>
+<div class="arithmatex">\[t : (x_1{:}\tau_1,\ \dots,\ x_n{:}\tau_n) \to \tau_o\]</div>
+<p><strong>Pipeline statement forms:</strong></p>
+<div class="arithmatex">\[\begin{align*}
+s\ ::=\ &amp; \texttt{let}\ x = \texttt{run}\ t\ \texttt{with}\ \{k_i{:}e_i\}\ [\texttt{by}\ a]\ [\texttt{retries}\ n]\ [\texttt{on\_fail abort}] \\
+  \mid\ &amp; \texttt{let}\ x = \texttt{run}\ t\ \texttt{with}\ \{k_i{:}e_i\}\ [\texttt{by}\ a]\ [\texttt{retries}\ n]\ \texttt{on\_fail use}\ e_f \\
+  \mid\ &amp; \texttt{parallel}\ \{s_1;\dots;s_m\}\ \texttt{join} \\
+  \mid\ &amp; \texttt{if}\ e\ \{s^*\}\ [\texttt{else}\ \{s^*\}] \\
+  \mid\ &amp; \texttt{return}\ e
+\end{align*}\]</div>
+<p><strong>Expression forms:</strong></p>
+<div class="arithmatex">\[\begin{align*}
+e\ ::=\ &amp; c \mid x \mid x.f \mid \{k_i{:}e_i\} \mid [e^*] \\
+  \mid\ &amp; e + e \mid e\ {==}\ e \mid e\ {!=}\ e
+\end{align*}\]</div>
+<p><strong>Types:</strong></p>
+<div class="arithmatex">\[\tau\ ::=\ \texttt{String} \mid \texttt{Number} \mid \texttt{Bool} \mid \texttt{List}[\tau] \mid \texttt{Obj}\{f_i{:}\tau_i\}\]</div>
+<hr />
+<h2 id="2-static-semantics">2. Static Semantics<a class="headerlink" href="#2-static-semantics" title="Permanent link">&para;</a></h2>
+<h3 id="environments">Environments<a class="headerlink" href="#environments" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Symbol</th>
+<th>Definition</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><span class="arithmatex">\(\Gamma : \text{Var} \to \tau\)</span></td>
+<td>Typing environment — maps variable names to their types</td>
+</tr>
+<tr>
+<td><span class="arithmatex">\(\Sigma : \text{TaskName} \to (\vec{\tau}_{in}, \tau_{out})\)</span></td>
+<td>Task table — maps task names to their signatures</td>
+</tr>
+<tr>
+<td><span class="arithmatex">\(\Delta : \text{AgentName} \to \text{AgentSpec}\)</span></td>
+<td>Agent table — maps agent names to their specs</td>
+</tr>
+</tbody>
+</table>
+<h3 id="expression-typing">Expression typing<a class="headerlink" href="#expression-typing" title="Permanent link">&para;</a></h3>
+<p>Selected rules:</p>
+<div class="arithmatex">\[\dfrac{}{\Gamma \vdash c : \text{type}(c)} \quad \text{(literal)}\]</div>
+<div class="arithmatex">\[\dfrac{x \in \text{dom}(\Gamma)}{\Gamma \vdash x : \Gamma(x)} \quad \text{(variable)}\]</div>
+<div class="arithmatex">\[\dfrac{\Gamma \vdash e : \texttt{Obj}\{f_i{:}\tau_i\} \quad f_j \in \{f_i\}}{\Gamma \vdash e.f_j : \tau_j} \quad \text{(field access)}\]</div>
+<div class="arithmatex">\[\dfrac{\Gamma \vdash e_1 : \tau \quad \Gamma \vdash e_2 : \tau}{\Gamma \vdash e_1\ {==}\ e_2 : \texttt{Bool}} \quad \text{(equality)}\]</div>
+<h3 id="task-invocation-typing">Task invocation typing<a class="headerlink" href="#task-invocation-typing" title="Permanent link">&para;</a></h3>
+<div class="arithmatex">\[\dfrac{
+  \Sigma(t) = ((k_1{:}\tau_1,\dots,k_n{:}\tau_n) \to \tau_o) \qquad
+  \Gamma \vdash e_i : \tau_i \quad \forall\, i
+}{
+  \Gamma \vdash \texttt{run}\ t\ \texttt{with}\ \{k_i{:}e_i\}\ [\texttt{by}\ a]\ [\texttt{retries}\ n]\ [\texttt{on\_fail abort}] : \tau_o
+}\]</div>
+<p>with side-condition <span class="arithmatex">\(a \in \text{dom}(\Delta)\)</span> when <code>by a</code> is present.</p>
+<h3 id="fallback-policy-typing">Fallback policy typing<a class="headerlink" href="#fallback-policy-typing" title="Permanent link">&para;</a></h3>
+<div class="arithmatex">\[\dfrac{
+  \Gamma \vdash e_f : \tau_o
+}{
+  \Gamma \vdash \texttt{on\_fail use}\ e_f : \tau_o
+}\]</div>
+<p>The fallback expression type must equal the task's return type <span class="arithmatex">\(\tau_o\)</span>.</p>
+<h3 id="conditional-typing">Conditional typing<a class="headerlink" href="#conditional-typing" title="Permanent link">&para;</a></h3>
+<div class="arithmatex">\[\dfrac{
+  \Gamma \vdash e_c : \texttt{Bool} \qquad
+  \Gamma \vdash s_{then}^* \qquad
+  \Gamma \vdash s_{else}^*
+}{
+  \Gamma \vdash \texttt{if}\ e_c\ \{s_{then}^*\}\ \texttt{else}\ \{s_{else}^*\} : \checkmark
+}\]</div>
+<h3 id="return-typing">Return typing<a class="headerlink" href="#return-typing" title="Permanent link">&para;</a></h3>
+<div class="arithmatex">\[\dfrac{
+  \Gamma \vdash e : \tau_{ret}
+}{
+  \Gamma \vdash \texttt{return}\ e : \checkmark
+}\]</div>
+<p>where <span class="arithmatex">\(\tau_{ret}\)</span> is the pipeline's declared return type.</p>
+<h3 id="pipeline-well-typedness">Pipeline well-typedness<a class="headerlink" href="#pipeline-well-typedness" title="Permanent link">&para;</a></h3>
+<p>A pipeline <span class="arithmatex">\(W = \langle \text{name},\ \vec{p},\ \tau_{ret},\ \vec{s} \rangle\)</span> is well-typed under <span class="arithmatex">\(\Sigma, \Delta\)</span> when:</p>
+<ol>
+<li>The initial environment <span class="arithmatex">\(\Gamma_0 = \{p_i : \tau_i\}\)</span> is constructed from declared params</li>
+<li>Every statement in <span class="arithmatex">\(\vec{s}\)</span> type-checks under the accumulated <span class="arithmatex">\(\Gamma\)</span></li>
+<li>Every reachable <code>return</code> expression has type <span class="arithmatex">\(\tau_{ret}\)</span></li>
+</ol>
+<hr />
+<h2 id="3-dynamic-semantics">3. Dynamic Semantics<a class="headerlink" href="#3-dynamic-semantics" title="Permanent link">&para;</a></h2>
+<h3 id="runtime-configuration">Runtime configuration<a class="headerlink" href="#runtime-configuration" title="Permanent link">&para;</a></h3>
+<p>A runtime configuration is a pair <span class="arithmatex">\(\langle S,\ E \rangle\)</span> where:</p>
+<ul>
+<li><span class="arithmatex">\(S\)</span> is the remaining statement stream</li>
+<li><span class="arithmatex">\(E\)</span> is the environment mapping variable names to runtime values</li>
+</ul>
+<h3 id="transition-rules">Transition rules<a class="headerlink" href="#transition-rules" title="Permanent link">&para;</a></h3>
+<p><strong>Run (success):</strong></p>
+<div class="arithmatex">\[\langle [\texttt{let}\ x = \texttt{run}\ t\ \vec{a}] \cdot S,\ E \rangle \;\longrightarrow\; \langle S,\ E[x \mapsto \text{handler}(t,\ \vec{a})] \rangle\]</div>
+<p><strong>Retry:</strong> on failure, re-submits the run statement with the retry counter decremented. When the budget reaches zero, the failure policy applies.</p>
+<p><strong>Failure policy — abort:</strong></p>
+<div class="arithmatex">\[\langle [\texttt{let}\ x = \texttt{run}\ t\ \vec{a}\ \texttt{on\_fail abort}] \cdot S,\ E \rangle \;\xrightarrow{\text{fail}}\; \textbf{Error}\]</div>
+<p><strong>Failure policy — use:</strong></p>
+<div class="arithmatex">\[\langle [\texttt{let}\ x = \texttt{run}\ t\ \vec{a}\ \texttt{on\_fail use}\ e_f] \cdot S,\ E \rangle \;\xrightarrow{\text{fail}}\; \langle S,\ E[x \mapsto \mathcal{E}\llbracket e_f \rrbracket_E] \rangle\]</div>
+<p><strong>Parallel join:</strong></p>
+<div class="arithmatex">\[\langle [\texttt{parallel}\{s_1;\dots;s_m\}\texttt{ join}] \cdot S,\ E \rangle \;\longrightarrow\; \left\langle S,\ E \cup \bigsqcup_{i=1}^{m} E_i \right\rangle\]</div>
+<p>where each <span class="arithmatex">\(E_i\)</span> is the result of running <span class="arithmatex">\(s_i\)</span> against a snapshot of <span class="arithmatex">\(E\)</span>, and <span class="arithmatex">\(\bigsqcup\)</span> denotes disjoint union (all bound names are distinct by the uniqueness constraint).</p>
+<p><strong>If (true branch):</strong></p>
+<div class="arithmatex">\[\langle [\texttt{if}\ e_c\ \{s_{then}^*\}\ \texttt{else}\ \{s_{else}^*\}] \cdot S,\ E \rangle \;\longrightarrow\; \langle s_{then}^* \cdot S,\ E \rangle \quad \text{when}\ \mathcal{E}\llbracket e_c \rrbracket_E = \textit{true}\]</div>
+<p><strong>Return:</strong></p>
+<div class="arithmatex">\[\langle [\texttt{return}\ e] \cdot S,\ E \rangle \;\longrightarrow\; \mathcal{E}\llbracket e \rrbracket_E\]</div>
+<hr />
+<h2 id="4-determinism">4. Determinism<a class="headerlink" href="#4-determinism" title="Permanent link">&para;</a></h2>
+<p><strong>Theorem (expression determinism).</strong> For any closed expression <span class="arithmatex">\(e\)</span> and environment <span class="arithmatex">\(E\)</span>, <span class="arithmatex">\(\mathcal{E}\llbracket e \rrbracket_E\)</span> is uniquely defined.</p>
+<p><strong>Corollary.</strong> A pipeline whose task handlers are all pure functions produces a deterministic output for any given input.</p>
+<p>The parallel join is deterministic in its <em>result set</em> but not in <em>execution order</em> — branch interleavings are unspecified. Final outputs are deterministic because branches bind disjoint names and the merge is a union.</p>
+</section>
+
+            </main>
+        </div>
+        <hr><footer>
+    <div class="terminal-mkdocs-footer-grid">
+        <div id="terminal-mkdocs-footer-copyright-info">
+             Site built with <a href="http://www.mkdocs.org">MkDocs</a> and <a href="https://github.com/ntno/mkdocs-terminal">Terminal for MkDocs</a>.
+        </div>
+    </div>
+</footer>
+    </div>
+
+    
+    <div class="modal" id="mkdocs_search_modal" tabindex="-1" role="alertdialog" aria-modal="true" aria-labelledby="searchModalLabel">
+    <div class="modal-dialog modal-lg" role="search">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="searchModalLabel">Search</h5>
+                <button type="button" class="close btn btn-default btn-ghost" data-dismiss="modal" aria-label="Close">x</button>
+            </div>
+            <div class="modal-body">
+                <p id="searchInputLabel">Type to start searching</p>
+                <form>
+                    <div class="form-group">
+                        <input type="search" class="form-control" aria-labelledby="searchInputLabel" placeholder="" id="mkdocs-search-query" title="Please enter search terms here">
+                    </div>
+                </form>
+                <div id="mkdocs-search-results" data-no-results-text="No document matches found"></div>
+            </div>
+            <div class="modal-footer">
+            </div>
+        </div>
+    </div>
+</div>
+    
+    
+</body>
+
+</html>

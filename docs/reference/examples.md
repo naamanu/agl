@@ -1,0 +1,230 @@
+# Examples
+
+AgentLang ships with five `.agent` examples in `examples/`. Each one exercises a distinct set of language features.
+
+---
+
+## `blog.agent` — sequential pipeline
+
+**Features:** sequential `let` statements, two agents, field access
+
+```agentlang
+agent planner {
+  model: "gpt-4.1"
+  , tools: [web_search]
+}
+
+agent writer {
+  model: "gpt-4.1-mini"
+  , tools: []
+}
+
+task research(topic: String) -> Obj{notes: String} {}
+task draft(notes: String) -> Obj{article: String} {}
+
+pipeline blog_post(topic: String) -> String {
+  let r = run research with { topic: topic } by planner;
+  let d = run draft with { notes: r.notes } by writer;
+  return d.article;
+}
+```
+
+```bash
+python main.py examples/blog.agent blog_post \
+  --input '{"topic":"agent memory patterns"}'
+```
+
+```json
+{
+  "result": "[writer] Draft article:\n[planner] key points for 'agent memory patterns'"
+}
+```
+
+---
+
+## `compare.agent` — parallel execution
+
+**Features:** `parallel { } join`, merging branch outputs downstream
+
+```agentlang
+agent planner {
+  model: "gpt-4.1"
+  , tools: [web_search]
+}
+
+agent reviewer {
+  model: "gpt-4.1-mini"
+  , tools: []
+}
+
+task research(topic: String) -> Obj{notes: String} {}
+task compare(note_a: String, note_b: String) -> Obj{decision: String} {}
+
+pipeline compare_options(query: String) -> String {
+  parallel {
+    let a = run research with { topic: query + " option A" } by planner;
+    let b = run research with { topic: query + " option B" } by planner;
+  } join;
+
+  let c = run compare with { note_a: a.notes, note_b: b.notes } by reviewer;
+  return c.decision;
+}
+```
+
+```bash
+python main.py examples/compare.agent compare_options \
+  --input '{"query":"vector database"}'
+```
+
+```json
+{
+  "result": "[reviewer] Option A vs B\nA: [planner] key points for 'vector database option A'\nB: [planner] key points for 'vector database option B'"
+}
+```
+
+---
+
+## `support.agent` — multi-step routing
+
+**Features:** three sequential tasks, field threading between steps
+
+```agentlang
+agent triage {
+  model: "gpt-4.1-mini"
+  , tools: []
+}
+
+task extract_intent(message: String) -> Obj{intent: String, urgency: String} {}
+task route(intent: String, urgency: String) -> Obj{queue: String} {}
+task respond(intent: String, queue: String) -> Obj{reply: String} {}
+
+pipeline support_reply(message: String) -> String {
+  let i = run extract_intent with { message: message } by triage;
+  let q = run route with { intent: i.intent, urgency: i.urgency } by triage;
+  let r = run respond with { intent: i.intent, queue: q.queue } by triage;
+  return r.reply;
+}
+```
+
+```bash
+python main.py examples/support.agent support_reply \
+  --input '{"message":"urgent refund request"}'
+```
+
+```json
+{
+  "result": "[triage] Routed as billing to billing-priority."
+}
+```
+
+---
+
+## `reliability.agent` — retry, fallback, conditional
+
+**Features:** `retries`, `on_fail use`, `if/else`, string equality
+
+```agentlang
+agent ops {
+  model: "gpt-4.1-mini"
+  , tools: []
+}
+
+task flaky_fetch(key: String, failures_before_success: Number) -> Obj{data: String} {}
+task draft(notes: String) -> Obj{article: String} {}
+
+pipeline resilient_brief(topic: String, fail_count: Number) -> String {
+  let f = run flaky_fetch
+    with { key: topic, failures_before_success: fail_count }
+    by ops
+    retries 2
+    on_fail use { data: "fallback for " + topic };
+
+  if f.data == "fallback for " + topic {
+    let d = run draft with { notes: "Fallback path: " + f.data } by ops;
+    return d.article;
+  } else {
+    let d = run draft with { notes: "Fresh path: " + f.data } by ops;
+    return d.article;
+  }
+}
+```
+
+Run — succeeds within retry budget (`fail_count: 1` < `retries 2`):
+
+```bash
+python main.py examples/reliability.agent resilient_brief \
+  --input '{"topic":"api-status","fail_count":1}'
+```
+
+```json
+{
+  "result": "[ops] Draft article:\nFresh path: [ops] fetched payload for api-status"
+}
+```
+
+Run — exhausts retries, uses fallback (`fail_count: 5` > `retries 2`):
+
+```bash
+python main.py examples/reliability.agent resilient_brief \
+  --input '{"topic":"api-status","fail_count":5}'
+```
+
+```json
+{
+  "result": "[ops] Draft article:\nFallback path: fallback for api-status"
+}
+```
+
+---
+
+## `live_answer.agent` — minimal live adapter test
+
+**Features:** single-task pipeline, direct LLM prompt, `llm_complete`
+
+```agentlang
+agent assistant {
+  model: "gpt-4.1-mini"
+  , tools: []
+}
+
+task llm_complete(prompt: String) -> Obj{text: String} {}
+
+pipeline answer(question: String) -> String {
+  let r = run llm_complete
+    with { prompt: "Answer briefly: " + question }
+    by assistant;
+  return r.text;
+}
+```
+
+Mock mode:
+
+```bash
+python main.py examples/live_answer.agent answer \
+  --input '{"question":"What is an agentic workflow?"}'
+```
+
+```json
+{
+  "result": "[assistant] Answer briefly: What is an agentic workflow?"
+}
+```
+
+Live mode:
+
+```bash
+export OPENAI_API_KEY="sk-..."
+
+python main.py examples/live_answer.agent answer \
+  --adapter live \
+  --input '{"question":"What is an agentic workflow?"}'
+```
+
+---
+
+## Authoring tips
+
+- Keep task signatures small and explicit.
+- Choose the pipeline return type intentionally — it's what `--input` validation checks against.
+- Include both a happy-path and a failure-path input when testing retry behavior.
+- Add a new example whenever you introduce a new language feature.

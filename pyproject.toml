@@ -1,7 +1,14 @@
 [project]
 name = "agentlang"
 version = "0.1.0"
-description = "Add your description here"
+description = "A tiny DSL for agentic workflows"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = []
+
+[project.optional-dependencies]
+docs = [
+  "mkdocs>=1.5,<2.0",
+  "mkdocs-terminal",
+  "pymdown-extensions>=10.7",
+]

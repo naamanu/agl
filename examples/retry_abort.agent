@@ -1,0 +1,19 @@
+-- Pipeline demonstrating on_fail abort behaviour.
+-- When fail_count exceeds the retry budget (retries 2 = 3 total attempts),
+-- the pipeline raises a runtime error instead of continuing.
+
+agent ops {
+  model: "gpt-4.1-mini"
+  , tools: []
+}
+
+task flaky_fetch(key: String, failures_before_success: Number) -> Obj{data: String} {}
+
+pipeline abort_on_failure(topic: String, fail_count: Number) -> String {
+  let f = run flaky_fetch
+    with { key: topic, failures_before_success: fail_count }
+    by ops
+    retries 2
+    on_fail abort;
+  return f.data;
+}

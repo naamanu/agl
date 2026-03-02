@@ -106,8 +106,14 @@ python main.py repl --adapter mock
 
 ```
 AgentLang REPL (adapter=mock). Type 'exit' to quit.
->
+> examples/blog.agent blog_post {"topic":"agent memory"}
+{
+  "result": "[writer] Draft article:\n[planner] key points for 'agent memory'"
+}
+> exit
 ```
+
+Each line at the `>` prompt takes the form `<source_file> <pipeline_name> [json_input]`. Errors are printed and the REPL continues — no restart needed.
 
 ## Next steps
 

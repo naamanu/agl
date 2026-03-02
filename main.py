@@ -8,6 +8,10 @@ from agentlang import check_program, default_task_registry, execute_pipeline, pa
 
 
 def main() -> None:
+    if len(sys.argv) >= 2 and sys.argv[1] == "repl":
+        _repl(sys.argv[2:])
+        return
+
     parser = argparse.ArgumentParser(
         description="Run AgentLang pipelines from .agent source files."
     )
@@ -61,6 +65,65 @@ def main() -> None:
         raise SystemExit(1) from exc
 
     print(json.dumps({"result": result}, indent=2))
+
+
+def _repl(argv: list[str]) -> None:
+    parser = argparse.ArgumentParser(prog="main.py repl")
+    parser.add_argument(
+        "--adapter",
+        choices=["mock", "live"],
+        default=None,
+        help="Task adapter mode (default: mock).",
+    )
+    args = parser.parse_args(argv)
+    adapter = args.adapter
+
+    try:
+        import readline  # noqa: F401 — enables arrow-key history on supported platforms
+    except ImportError:
+        pass
+
+    print(f"AgentLang REPL (adapter={adapter or 'mock'}). Type 'exit' to quit.")
+    while True:
+        try:
+            line = input("> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            break
+        if not line:
+            continue
+        if line == "exit":
+            break
+
+        parts = line.split(None, 2)
+        if len(parts) < 2:
+            print("Usage: <source_file> <pipeline_name> [json_input]", file=sys.stderr)
+            continue
+
+        source_path, pipeline_name = parts[0], parts[1]
+        input_json = parts[2] if len(parts) > 2 else "{}"
+
+        try:
+            payload = json.loads(input_json)
+            if not isinstance(payload, dict):
+                raise ValueError("Input JSON must be an object.")
+        except ValueError as exc:
+            print(f"Invalid input: {exc}", file=sys.stderr)
+            continue
+
+        try:
+            source_text = _read_text(source_path)
+            program = parse_program(source_text)
+            check_program(program)
+            result = execute_pipeline(
+                program=program,
+                pipeline_name=pipeline_name,
+                inputs=payload,
+                task_registry=default_task_registry(program, adapter_mode=adapter),
+            )
+            print(json.dumps({"result": result}, indent=2))
+        except Exception as exc:  # noqa: BLE001 - REPL should stay alive after errors.
+            print(f"Error: {exc}", file=sys.stderr)
 
 
 def _read_text(path: str) -> str:

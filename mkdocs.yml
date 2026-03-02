@@ -1,6 +1,6 @@
 site_name: AgentLang
 site_description: A tiny DSL for agentic workflows — define agents, typed tasks, and pipelines.
-site_url: https://naamanu.github.io/agl
+site_url: https://nanamanu.com/agl
 repo_url: https://github.com/naamanu/agl
 repo_name: naamanu/agl
 edit_uri: edit/main/docs/

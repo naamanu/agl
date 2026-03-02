@@ -1,5 +1,5 @@
 [project]
-name = "agentlang"
+name = "agl"
 version = "0.1.0"
 description = "A tiny DSL for agentic workflows"
 readme = "README.md"

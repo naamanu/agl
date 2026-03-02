@@ -7,7 +7,7 @@ edit_uri: edit/main/docs/
 
 theme:
   name: terminal
-  palette: dark
+  palette: default
 
 nav:
   - Home: index.md

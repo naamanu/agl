@@ -9,13 +9,18 @@ from .ast import (
     Expr,
     IfStmt,
     ListExpr,
+    ListType,
     ObjExpr,
+    ObjType,
     ParallelStmt,
+    PipelineDef,
+    PrimitiveType,
     Program,
     RefExpr,
     ReturnStmt,
     RunStmt,
     Stmt,
+    TypeExpr,
 )
 
 TaskHandler = Callable[[dict[str, Any], str | None], Any]
@@ -37,9 +42,13 @@ def execute_pipeline(
     task_registry: dict[str, TaskHandler],
     max_workers: int = 8,
 ) -> Any:
+    if max_workers < 1:
+        raise RuntimeError("max_workers must be greater than 0")
+
     pipeline = program.pipelines.get(pipeline_name)
     if pipeline is None:
         raise RuntimeError(f"Unknown pipeline '{pipeline_name}'.")
+    _validate_pipeline_inputs(pipeline, inputs)
 
     env: dict[str, Any] = dict(inputs)
     try:
@@ -161,3 +170,54 @@ def _eval_expr(expr: Expr, env: dict[str, Any]) -> Any:
 
     return expr.value
 
+
+def _validate_pipeline_inputs(pipeline: PipelineDef, inputs: dict[str, Any]) -> None:
+    expected = {param.name: param.type_expr for param in pipeline.params}
+    provided = set(inputs)
+    missing = set(expected) - provided
+    extra = provided - set(expected)
+
+    if missing:
+        raise RuntimeError(
+            f"Pipeline '{pipeline.name}' missing inputs: {sorted(missing)}."
+        )
+    if extra:
+        raise RuntimeError(
+            f"Pipeline '{pipeline.name}' received unknown inputs: {sorted(extra)}."
+        )
+
+    for name, expected_type in expected.items():
+        value = inputs[name]
+        if not _is_value_assignable(value, expected_type):
+            raise RuntimeError(
+                f"Pipeline '{pipeline.name}' input '{name}' has invalid value {value!r} "
+                f"for type {expected_type}."
+            )
+
+
+def _is_value_assignable(value: Any, expected: TypeExpr) -> bool:
+    if isinstance(expected, PrimitiveType):
+        if expected.name == "String":
+            return isinstance(value, str)
+        if expected.name == "Number":
+            return isinstance(value, (int, float)) and not isinstance(value, bool)
+        if expected.name == "Bool":
+            return isinstance(value, bool)
+        return False
+
+    if isinstance(expected, ListType):
+        if not isinstance(value, list):
+            return False
+        return all(_is_value_assignable(item, expected.item_type) for item in value)
+
+    if isinstance(expected, ObjType):
+        if not isinstance(value, dict):
+            return False
+        if set(value) != set(expected.fields):
+            return False
+        return all(
+            _is_value_assignable(value[field], field_type)
+            for field, field_type in expected.fields.items()
+        )
+
+    return False

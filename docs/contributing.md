@@ -1,65 +1,115 @@
 # Contributing
 
-This document describes how to extend AgentLang safely.
+This guide explains how to extend AgentLang — adding language features, new tasks, or adapter changes.
 
-## Development Workflow
+## Development workflow
 
 1. Edit source files.
-2. Run syntax checks:
+2. Run syntax validation:
 
-```bash
-python -m py_compile main.py agentlang/*.py agentlang/adapters/*.py
+    ```bash
+    python -m py_compile main.py agentlang/*.py agentlang/adapters/*.py
+    ```
+
+3. Run a representative example:
+
+    ```bash
+    python main.py examples/blog.agent blog_post \
+      --input '{"topic":"agent memory patterns"}'
+    ```
+
+4. Run the retry/fallback example to exercise the failure path:
+
+    ```bash
+    python main.py examples/reliability.agent resilient_brief \
+      --input '{"topic":"api-status","fail_count":5}'
+    ```
+
+5. If you changed DSL or runtime semantics, update the relevant docs (see below).
+
+## Project layout
+
+```text
+agentlang/
+  ast.py          -- AST node dataclasses
+  lexer.py        -- tokenizer + string decoder
+  parser.py       -- recursive-descent parser
+  checker.py      -- static type checker
+  runtime.py      -- pipeline executor
+  stdlib.py       -- built-in task handlers + task registry
+  adapters/
+    openai.py     -- OpenAI Responses API client
+    tools.py      -- web search and other tool adapters
+examples/
+  *.agent         -- runnable example programs
+docs/             -- this documentation
+main.py           -- CLI entrypoint
 ```
 
-3. Run representative examples:
+## Extending the language
 
-```bash
-python main.py examples/blog.agent blog_post --input '{"topic":"agent memory patterns"}'
-python main.py examples/reliability.agent resilient_brief --input '{"topic":"api-status","fail_count":5}'
-```
+Adding a new syntax feature touches every layer. Update all of these:
 
-## Extending The Language
+| File | What to change |
+|---|---|
+| `agentlang/ast.py` | Add new AST node dataclass(es) |
+| `agentlang/lexer.py` | Add new tokens or keywords |
+| `agentlang/parser.py` | Add parsing logic for the new syntax |
+| `agentlang/checker.py` | Add type-checking rules |
+| `agentlang/runtime.py` | Add execution semantics |
+| `docs/reference/language.md` | Update syntax reference |
+| `docs/reference/runtime.md` | Update execution phase docs |
+| `docs/advanced/semantics.md` | Update formal rules |
 
-When adding a syntax feature, update all of:
+## Adding a new task
 
-1. AST (`agentlang/ast.py`)
-2. lexer tokens/keywords (`agentlang/lexer.py`)
-3. parser (`agentlang/parser.py`)
-4. type checker (`agentlang/checker.py`)
-5. runtime execution semantics (`agentlang/runtime.py`)
-6. docs:
-   - `docs/language-reference.md`
-   - `docs/runtime-and-typing.md`
-   - `docs/semantics.md`
+1. Declare the task signature in a `.agent` file:
 
-## Adding A New Task
+    ```agentlang
+    task my_task(input: String) -> Obj{result: String} {}
+    ```
 
-1. Declare task signature in `.agent` source.
-2. Add runtime handler in `agentlang/stdlib.py`.
-3. Register handler in `default_task_registry(...)`.
-4. Add or update example in `examples/`.
-5. Document behavior in `docs/examples.md` (and `docs/adapters.md` if live-backed).
+2. Add a handler function in `agentlang/stdlib.py`:
 
-## Adapter Changes
+    ```python
+    def my_task_handler(args: dict[str, Any], agent: str | None) -> dict[str, str]:
+        return {"result": f"handled: {args['input']}"}
+    ```
 
-OpenAI adapter lives in:
+3. Register it in `default_task_registry()`:
 
-- `agentlang/adapters/openai.py`
+    ```python
+    "my_task": my_task_handler,
+    ```
 
-Tool adapters live in:
+4. Add or update an example in `examples/`.
 
-- `agentlang/adapters/tools.py`
+5. Document the task in `docs/reference/examples.md` and `docs/reference/adapters.md` if it has live behavior.
+
+## Adapter changes
+
+The OpenAI adapter lives in `agentlang/adapters/openai.py`. Tool adapters (web search) are in `agentlang/adapters/tools.py`.
 
 Guidelines:
 
-- keep adapter modules dependency-light
-- wrap external errors with clear messages
-- avoid leaking secrets in logs or docs
+- Keep adapter modules dependency-light.
+- Wrap all external errors with clear, user-readable messages.
+- Never log or surface secrets in error messages or stack traces.
 
-## Style Guidelines
+## Style guidelines
 
-- keep changes small and composable
-- prefer explicit errors over silent fallbacks
-- preserve deterministic mock behavior for local development
-- keep docs synchronized with behavior changes
+- 4-space indentation, explicit type hints on public functions.
+- `snake_case` for functions/variables, `PascalCase` for classes.
+- Keep changes small and composable — prefer explicit errors over silent fallbacks.
+- Keep docs synchronized with behavior changes.
+- Follow Conventional Commit style: `feat:`, `fix:`, `docs:` prefixes with an imperative, concise subject.
 
+## Commit and PR checklist
+
+Before opening a PR:
+
+- [ ] `py_compile` passes on all core modules
+- [ ] At least one happy-path example runs correctly
+- [ ] At least one failure-path example runs correctly (if relevant)
+- [ ] Docs updated for any DSL/runtime/adapter changes
+- [ ] No secrets in source, examples, or docs

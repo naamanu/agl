@@ -1,0 +1,63 @@
+site_name: AgentLang
+site_description: A tiny DSL for agentic workflows — define agents, typed tasks, and pipelines.
+site_url: https://nanaadjeimanu.github.io/agentlang
+repo_url: https://github.com/nanaadjeimanu/agentlang
+repo_name: nanaadjeimanu/agentlang
+edit_uri: edit/main/docs/
+
+theme:
+  name: terminal
+  palette: dark
+
+nav:
+  - Home: index.md
+  - Tutorial:
+      - Quick Start: tutorial/quickstart.md
+      - Your First Pipeline: tutorial/first-pipeline.md
+  - Concepts:
+      - Agents: concepts/agents.md
+      - Tasks: concepts/tasks.md
+      - Pipelines: concepts/pipelines.md
+      - The Type System: concepts/types.md
+      - Parallel Execution: concepts/parallel.md
+      - Retry & Fallback: concepts/retry.md
+  - Reference:
+      - Language Reference: reference/language.md
+      - CLI Reference: reference/cli.md
+      - Adapters: reference/adapters.md
+      - Runtime & Typing: reference/runtime.md
+      - Examples: reference/examples.md
+  - Advanced:
+      - Formal Semantics: advanced/semantics.md
+  - Contributing: contributing.md
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.arithmatex:
+      generic: true
+  - tables
+  - toc:
+      permalink: true
+  - attr_list
+  - md_in_html
+
+plugins:
+  - search
+
+extra_javascript:
+  - javascripts/mathjax.js
+  - https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.min.js

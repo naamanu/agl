@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from threading import Lock
 from typing import Any, Callable
 
 from .adapters import (
@@ -16,6 +17,7 @@ from .ast import AgentDef, Program
 TaskHandler = Callable[[dict[str, Any], str | None], Any]
 
 _flaky_attempts: dict[str, int] = {}
+_flaky_attempts_lock = Lock()
 
 
 @dataclass(frozen=True)
@@ -137,9 +139,16 @@ def default_task_registry(
     def flaky_fetch(args: dict[str, Any], agent: str | None) -> dict[str, str]:
         key = str(args["key"])
         failures_before_success = int(args["failures_before_success"])
-        attempts_so_far = _flaky_attempts.get(key, 0)
-        if attempts_so_far < failures_before_success:
-            _flaky_attempts[key] = attempts_so_far + 1
+
+        with _flaky_attempts_lock:
+            attempts_so_far = _flaky_attempts.get(key, 0)
+            if attempts_so_far < failures_before_success:
+                _flaky_attempts[key] = attempts_so_far + 1
+                should_fail = True
+            else:
+                should_fail = False
+
+        if should_fail:
             raise RuntimeError(
                 f"Transient failure for key '{key}' "
                 f"({attempts_so_far + 1}/{failures_before_success})"
@@ -228,4 +237,3 @@ def _complete_live(
         return client.complete(model=model, prompt=prompt, system=system, max_output_tokens=700)
     except OpenAIAdapterError as exc:
         raise RuntimeError(f"LLM call failed: {exc}") from exc
-

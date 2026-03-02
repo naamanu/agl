@@ -39,7 +39,7 @@ All clauses are optional. Defaults: `retries 0`, `on_fail abort`.
 If the task exhausts its retry budget, a runtime error is raised and the pipeline stops:
 
 ```
-Execution error: Transient failure for key 'api-status' (3/3)
+Execution error: Task 'flaky_fetch' failed after 3 attempts.
 ```
 
 ### `on_fail use <expr>`

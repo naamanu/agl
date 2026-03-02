@@ -382,13 +382,15 @@ class Parser:
         if token.kind == "LBRACKET":
             return self.parse_list_literal()
 
+        if token.kind == "TRUE":
+            self.advance()
+            return LiteralExpr(value=True)
+
+        if token.kind == "FALSE":
+            self.advance()
+            return LiteralExpr(value=False)
+
         if token.kind == "ID":
-            if token.value == "true":
-                self.advance()
-                return LiteralExpr(value=True)
-            if token.value == "false":
-                self.advance()
-                return LiteralExpr(value=False)
             parts = [self.advance().value]
             while self.match("DOT"):
                 parts.append(self.expect("ID").value)

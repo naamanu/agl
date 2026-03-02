@@ -56,6 +56,10 @@ def _check_block(
                     raise TypeCheckError(
                         f"Duplicate target '{branch.target}' inside parallel block."
                     )
+                if branch.target in env:
+                    raise TypeCheckError(
+                        f"Parallel target '{branch.target}' shadows an existing variable."
+                    )
                 new_bindings[branch.target] = _check_run_stmt(program, branch, env)
             env.update(new_bindings)
             continue
@@ -69,13 +73,17 @@ def _check_block(
             then_env = dict(env)
             then_return = _check_block(program, pipeline, stmt.then_statements, then_env)
             if stmt.else_statements is None:
-                env.update(_common_bindings(env, then_env, env))
+                merged = _common_bindings(env, then_env, env)
+                env.clear()
+                env.update(merged)
                 # A return in an if-without-else is path-conditional.
                 continue
 
             else_env = dict(env)
             else_return = _check_block(program, pipeline, stmt.else_statements, else_env)
-            env.update(_common_bindings(env, then_env, else_env))
+            merged = _common_bindings(env, then_env, else_env)
+            env.clear()
+            env.update(merged)
             saw_return = saw_return or (then_return and else_return)
             continue
 
@@ -105,6 +113,10 @@ def _common_bindings(
         else_type = else_env[name]
         if _is_assignable(then_type, else_type) and _is_assignable(else_type, then_type):
             merged[name] = then_type
+        elif name in base_env:
+            # Variable was re-bound with incompatible types in the two branches.
+            # Drop it so callers cannot use it with a potentially wrong type.
+            del merged[name]
     return merged
 
 

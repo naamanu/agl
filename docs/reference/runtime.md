@@ -124,5 +124,5 @@ Common sources:
 | Missing task handler | `Unknown task 'my_task'` |
 | Adapter/network error | `LLM call failed: <http error>` |
 | Invalid field access | `KeyError: 'missing_field'` |
-| Unhandled task exception | `Transient failure for key 'x' (3/3)` |
+| Unhandled task exception | `Task 'flaky_fetch' failed after 3 attempts.` |
 | Invalid pipeline inputs | `Pipeline 'p' missing inputs: ['topic']` |

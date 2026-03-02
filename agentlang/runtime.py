@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any, Callable
@@ -122,7 +123,9 @@ def _execute_run_stmt(
 
     for attempt in range(max_attempts):
         try:
-            return handler(bound_args, stmt.agent_name)
+            # Handlers receive isolated argument copies so task-side mutation
+            # cannot affect pipeline environment or sibling parallel branches.
+            return handler(copy.deepcopy(bound_args), stmt.agent_name)
         except Exception as exc:  # noqa: BLE001 - workflow policy decides error handling
             last_error = exc
             if attempt < max_attempts - 1:

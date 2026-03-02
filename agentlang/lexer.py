@@ -15,8 +15,7 @@ class Token:
 TOKEN_RE = re.compile(
     r"""
     (?P<WS>[ \t\r\n]+)
-    |(?P<COMMENT>//[^\n]*)
-    |(?P<HASHCOMMENT>\#[^\n]*)
+    |(?P<COMMENT>--[^\n]*)
     |(?P<ARROW>->)
     |(?P<EQEQ>==)
     |(?P<NEQ>!=)
@@ -59,6 +58,8 @@ KEYWORDS = {
     "on_fail",
     "abort",
     "use",
+    "true",
+    "false",
 }
 
 
@@ -82,7 +83,7 @@ def lex(source: str) -> list[Token]:
         assert kind is not None
         text = match.group()
 
-        if kind in {"WS", "COMMENT", "HASHCOMMENT"}:
+        if kind in {"WS", "COMMENT"}:
             pass
         elif kind == "ID" and text in KEYWORDS:
             tokens.append(Token(kind=text.upper(), value=text, line=line, col=col))

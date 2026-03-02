@@ -93,6 +93,6 @@ main.py         -- CLI entrypoint
 
 ## Documentation
 
-Full docs at **https://naamanu.github.io/agl**
+Full docs at **https://nanamanu.com/agl**
 
 Covers: [Quick Start](docs/tutorial/quickstart.md) · [Language Reference](docs/reference/language.md) · [Adapters](docs/reference/adapters.md) · [Formal Semantics](docs/advanced/semantics.md) · [Contributing](docs/contributing.md)

@@ -253,8 +253,10 @@ def _execute_run_stmt(
                         f"{fallback!r} for type {task.return_type}."
                     ) from exc
                 return fallback
+            task_label = _format_task_label(stmt.task_name, stmt.agent_name)
             raise RuntimeError(
-                f"Task '{stmt.task_name}' failed after {max_attempts} attempts."
+                f"{task_label} failed after {max_attempts} attempts. "
+                f"Last error: {_format_exception_detail(exc)}"
             ) from exc
 
         if not _is_value_assignable(result, task.return_type):
@@ -264,7 +266,20 @@ def _execute_run_stmt(
             )
         return result
 
-    raise RuntimeError(f"Task '{stmt.task_name}' failed.") from last_error
+    raise RuntimeError(f"{_format_task_label(stmt.task_name, stmt.agent_name)} failed.") from last_error
+
+
+def _format_task_label(task_name: str, agent_name: str | None) -> str:
+    if agent_name is None:
+        return f"Task '{task_name}'"
+    return f"Task '{task_name}' by agent '{agent_name}'"
+
+
+def _format_exception_detail(exc: Exception) -> str:
+    message = str(exc).strip()
+    if not message:
+        return type(exc).__name__
+    return f"{type(exc).__name__}: {message}"
 
 
 def _eval_expr(expr: Expr, env: dict[str, Any]) -> Any:

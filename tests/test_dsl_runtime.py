@@ -68,6 +68,31 @@ pipeline greet() -> String {
         ):
             execute_pipeline(program, "greet", {}, {"fetch": fetch})
 
+    def test_runtime_surfaces_underlying_task_failure_reason(self) -> None:
+        source = """
+agent ops {
+  model: "gpt-4.1-mini"
+  , tools: []
+}
+
+task fetch() -> String {}
+
+pipeline greet() -> String {
+  let msg = run fetch with {} by ops;
+  return msg;
+}
+"""
+        program = self._program(source)
+
+        def fetch(_args, _agent):
+            raise ValueError("socket timeout")
+
+        with self.assertRaisesRegex(
+            AgentLangRuntimeError,
+            r"Task 'fetch' by agent 'ops' failed after 1 attempts\. Last error: ValueError: socket timeout",
+        ):
+            execute_pipeline(program, "greet", {}, {"fetch": fetch})
+
     def test_option_null_and_if_let_execute_both_paths(self) -> None:
         source = """
 task maybe_person(flag: Bool) -> Option[Obj{name: String}] {}

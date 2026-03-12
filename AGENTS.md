@@ -2,10 +2,10 @@
 
 ## Project Structure & Module Organization
 Core implementation lives in `agentlang/`: parser and language model (`ast.py`, `lexer.py`, `parser.py`), validation (`checker.py`), execution (`runtime.py`, `stdlib.py`), and integrations in `agentlang/adapters/`.  
-`main.py` is the CLI entrypoint (`run` and `repl` subcommands).  
+`main.py` is the CLI entrypoint (direct pipeline execution plus the `repl` subcommand).  
 `examples/` contains runnable `.agent` programs used for smoke testing and demos.  
 `docs/` contains language, runtime, adapter, and contribution docs.  
-There is currently no dedicated `tests/` directory.
+`tests/` contains automated coverage for parser, checker, and runtime behavior.
 
 ## Build, Test, and Development Commands
 - `python -m py_compile main.py agentlang/*.py agentlang/adapters/*.py`  
@@ -26,10 +26,11 @@ Keep changes small and composable; prefer explicit errors over silent fallbacks.
 For language features, update parser/checker/runtime together and keep docs synchronized.
 
 ## Testing Guidelines
-No formal unit-test framework is configured yet. Minimum validation for each change:
+Minimum validation for each change:
 1. Run `py_compile` checks.
-2. Run at least one happy-path example and one failure/retry example from `examples/`.
-3. If DSL/runtime semantics change, update relevant docs (`docs/language-reference.md`, `docs/runtime-and-typing.md`, `docs/semantics.md`).
+2. Run `python -m unittest discover -s tests`.
+3. Run at least one happy-path example and one failure/retry example from `examples/`.
+4. If DSL/runtime semantics change, update relevant docs (`docs/language-reference.md`, `docs/runtime-and-typing.md`, `docs/semantics.md`).
 
 ## Commit & Pull Request Guidelines
 Follow Conventional Commit style seen in history: `feat: ...`, `fix: ...` (imperative, concise subject).  

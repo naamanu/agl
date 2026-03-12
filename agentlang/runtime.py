@@ -8,11 +8,13 @@ from typing import Any, Callable
 from .ast import (
     BinaryExpr,
     Expr,
+    IfLetStmt,
     IfStmt,
     ListExpr,
     ListType,
     ObjExpr,
     ObjType,
+    OptionType,
     ParallelStmt,
     PipelineDef,
     PrimitiveType,
@@ -54,18 +56,25 @@ def execute_pipeline(
     env: dict[str, Any] = dict(inputs)
     try:
         _execute_block(
+            program=program,
             statements=pipeline.statements,
             env=env,
             task_registry=task_registry,
             max_workers=max_workers,
         )
     except _PipelineReturned as returned:
+        if not _is_value_assignable(returned.value, pipeline.return_type):
+            raise RuntimeError(
+                f"Pipeline '{pipeline.name}' returned invalid value {returned.value!r} "
+                f"for type {pipeline.return_type}."
+            )
         return returned.value
 
     raise RuntimeError(f"Pipeline '{pipeline_name}' completed without return.")
 
 
 def _execute_block(
+    program: Program,
     statements: list[Stmt],
     env: dict[str, Any],
     task_registry: dict[str, TaskHandler],
@@ -73,11 +82,11 @@ def _execute_block(
 ) -> None:
     for stmt in statements:
         if isinstance(stmt, RunStmt):
-            env[stmt.target] = _execute_run_stmt(stmt, env, task_registry)
+            env[stmt.target] = _execute_run_stmt(program, stmt, env, task_registry)
             continue
 
         if isinstance(stmt, ParallelStmt):
-            _execute_parallel(stmt, env, task_registry, max_workers)
+            _execute_parallel(program, stmt, env, task_registry, max_workers)
             continue
 
         if isinstance(stmt, IfStmt):
@@ -85,7 +94,25 @@ def _execute_block(
             if not isinstance(condition, bool):
                 raise RuntimeError("If condition did not evaluate to Bool.")
             branch = stmt.then_statements if condition else (stmt.else_statements or [])
-            _execute_block(branch, env, task_registry, max_workers)
+            _execute_block(program, branch, env, task_registry, max_workers)
+            continue
+
+        if isinstance(stmt, IfLetStmt):
+            option_value = _eval_expr(stmt.option_expr, env)
+            if option_value is None:
+                branch = stmt.else_statements or []
+                _execute_block(program, branch, env, task_registry, max_workers)
+            else:
+                previous = env.get(stmt.binding)
+                had_previous = stmt.binding in env
+                env[stmt.binding] = option_value
+                try:
+                    _execute_block(program, stmt.then_statements, env, task_registry, max_workers)
+                finally:
+                    if had_previous:
+                        env[stmt.binding] = previous
+                    else:
+                        del env[stmt.binding]
             continue
 
         if isinstance(stmt, ReturnStmt):
@@ -95,6 +122,7 @@ def _execute_block(
 
 
 def _execute_parallel(
+    program: Program,
     stmt: ParallelStmt,
     env: dict[str, Any],
     task_registry: dict[str, TaskHandler],
@@ -104,15 +132,22 @@ def _execute_parallel(
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_pairs = []
         for branch in stmt.branches:
-            future = executor.submit(_execute_run_stmt, branch, snapshot, task_registry)
+            future = executor.submit(_execute_run_stmt, program, branch, snapshot, task_registry)
             future_pairs.append((branch.target, future))
         for target, future in future_pairs:
             env[target] = future.result()
 
 
 def _execute_run_stmt(
-    stmt: RunStmt, env: dict[str, Any], task_registry: dict[str, TaskHandler]
+    program: Program,
+    stmt: RunStmt,
+    env: dict[str, Any],
+    task_registry: dict[str, TaskHandler],
 ) -> Any:
+    task = program.tasks.get(stmt.task_name)
+    if task is None:
+        raise RuntimeError(f"Unknown task '{stmt.task_name}'.")
+
     handler = task_registry.get(stmt.task_name)
     if handler is None:
         raise RuntimeError(f"No runtime handler registered for task '{stmt.task_name}'.")
@@ -125,7 +160,7 @@ def _execute_run_stmt(
         try:
             # Handlers receive isolated argument copies so task-side mutation
             # cannot affect pipeline environment or sibling parallel branches.
-            return handler(copy.deepcopy(bound_args), stmt.agent_name)
+            result = handler(copy.deepcopy(bound_args), stmt.agent_name)
         except Exception as exc:  # noqa: BLE001 - workflow policy decides error handling
             last_error = exc
             if attempt < max_attempts - 1:
@@ -135,10 +170,23 @@ def _execute_run_stmt(
                     raise RuntimeError(
                         f"Task '{stmt.task_name}' has on_fail use without fallback expression."
                     ) from exc
-                return _eval_expr(stmt.fallback_expr, env)
+                fallback = _eval_expr(stmt.fallback_expr, env)
+                if not _is_value_assignable(fallback, task.return_type):
+                    raise RuntimeError(
+                        f"Task '{stmt.task_name}' fallback produced invalid value "
+                        f"{fallback!r} for type {task.return_type}."
+                    ) from exc
+                return fallback
             raise RuntimeError(
                 f"Task '{stmt.task_name}' failed after {max_attempts} attempts."
             ) from exc
+
+        if not _is_value_assignable(result, task.return_type):
+            raise RuntimeError(
+                f"Task '{stmt.task_name}' returned invalid value {result!r} "
+                f"for type {task.return_type}."
+            )
+        return result
 
     raise RuntimeError(f"Task '{stmt.task_name}' failed.") from last_error
 
@@ -212,6 +260,11 @@ def _is_value_assignable(value: Any, expected: TypeExpr) -> bool:
         if not isinstance(value, list):
             return False
         return all(_is_value_assignable(item, expected.item_type) for item in value)
+
+    if isinstance(expected, OptionType):
+        if value is None:
+            return True
+        return _is_value_assignable(value, expected.item_type)
 
     if isinstance(expected, ObjType):
         if not isinstance(value, dict):

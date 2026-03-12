@@ -1,14 +1,18 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from .ast import (
     BinaryExpr,
     Expr,
+    IfLetStmt,
     IfStmt,
     ListExpr,
     ListType,
     LiteralExpr,
     ObjExpr,
     ObjType,
+    OptionType,
     ParallelStmt,
     PipelineDef,
     PrimitiveType,
@@ -22,6 +26,11 @@ from .ast import (
 
 
 class TypeCheckError(ValueError):
+    pass
+
+
+@dataclass(frozen=True)
+class _NullType(TypeExpr):
     pass
 
 
@@ -77,6 +86,35 @@ def _check_block(
                 env.clear()
                 env.update(merged)
                 # A return in an if-without-else is path-conditional.
+                continue
+
+            else_env = dict(env)
+            else_return = _check_block(program, pipeline, stmt.else_statements, else_env)
+            merged = _common_bindings(env, then_env, else_env)
+            env.clear()
+            env.update(merged)
+            saw_return = saw_return or (then_return and else_return)
+            continue
+
+        if isinstance(stmt, IfLetStmt):
+            option_type = _infer_expr_type(stmt.option_expr, env)
+            if not isinstance(option_type, OptionType):
+                raise TypeCheckError(
+                    f"If-let expression must have Option type, got {option_type} "
+                    f"in pipeline '{pipeline.name}'."
+                )
+            if stmt.binding in env:
+                raise TypeCheckError(
+                    f"If-let binding '{stmt.binding}' shadows an existing variable."
+                )
+
+            then_env = dict(env)
+            then_env[stmt.binding] = option_type.item_type
+            then_return = _check_block(program, pipeline, stmt.then_statements, then_env)
+            if stmt.else_statements is None:
+                merged = _common_bindings(env, then_env, env)
+                env.clear()
+                env.update(merged)
                 continue
 
             else_env = dict(env)
@@ -171,6 +209,8 @@ def _check_run_stmt(program: Program, stmt: RunStmt, env: dict[str, TypeExpr]) -
 
 def _infer_expr_type(expr: Expr, env: dict[str, TypeExpr]) -> TypeExpr:
     if isinstance(expr, LiteralExpr):
+        if expr.value is None:
+            return _NullType()
         if isinstance(expr.value, bool):
             return PrimitiveType("Bool")
         if isinstance(expr.value, int) or isinstance(expr.value, float):
@@ -214,7 +254,7 @@ def _infer_expr_type(expr: Expr, env: dict[str, TypeExpr]) -> TypeExpr:
                     return left
             raise TypeCheckError(f"Cannot apply + to {left} and {right}.")
         if expr.op in {"==", "!="}:
-            if _is_assignable(left, right) and _is_assignable(right, left):
+            if _can_compare(left, right):
                 return PrimitiveType("Bool")
             raise TypeCheckError(f"Cannot compare values of types {left} and {right}.")
         raise TypeCheckError(f"Unsupported binary operator '{expr.op}'.")
@@ -223,6 +263,12 @@ def _infer_expr_type(expr: Expr, env: dict[str, TypeExpr]) -> TypeExpr:
 
 
 def _is_assignable(actual: TypeExpr, expected: TypeExpr) -> bool:
+    if isinstance(actual, _NullType):
+        return isinstance(expected, (OptionType, _NullType))
+
+    if isinstance(actual, OptionType) and isinstance(expected, OptionType):
+        return _is_assignable(actual.item_type, expected.item_type)
+
     if isinstance(actual, PrimitiveType) and isinstance(expected, PrimitiveType):
         return actual.name == expected.name
 
@@ -237,4 +283,14 @@ def _is_assignable(actual: TypeExpr, expected: TypeExpr) -> bool:
             for field in expected.fields
         )
 
+    return False
+
+
+def _can_compare(left: TypeExpr, right: TypeExpr) -> bool:
+    if _is_assignable(left, right) and _is_assignable(right, left):
+        return True
+    if isinstance(left, _NullType) and isinstance(right, OptionType):
+        return True
+    if isinstance(right, _NullType) and isinstance(left, OptionType):
+        return True
     return False

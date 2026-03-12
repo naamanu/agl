@@ -19,6 +19,11 @@ class ListType(TypeExpr):
 
 
 @dataclass(frozen=True)
+class OptionType(TypeExpr):
+    item_type: TypeExpr
+
+
+@dataclass(frozen=True)
 class ObjType(TypeExpr):
     fields: dict[str, TypeExpr]
 
@@ -99,6 +104,14 @@ class ParallelStmt(Stmt):
 @dataclass(frozen=True)
 class IfStmt(Stmt):
     condition: Expr
+    then_statements: list[Stmt]
+    else_statements: list[Stmt] | None
+
+
+@dataclass(frozen=True)
+class IfLetStmt(Stmt):
+    binding: str
+    option_expr: Expr
     then_statements: list[Stmt]
     else_statements: list[Stmt] | None
 

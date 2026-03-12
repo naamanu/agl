@@ -6,12 +6,14 @@ from .ast import (
     AgentDef,
     BinaryExpr,
     Expr,
+    IfLetStmt,
     IfStmt,
     ListExpr,
     ListType,
     LiteralExpr,
     ObjExpr,
     ObjType,
+    OptionType,
     ParallelStmt,
     Param,
     PipelineDef,
@@ -194,6 +196,13 @@ class Parser:
             self.expect("RBRACKET")
             return ListType(item_type=item_type)
 
+        if token.kind == "ID" and token.value == "Option":
+            self.advance()
+            self.expect("LBRACKET")
+            item_type = self.parse_type()
+            self.expect("RBRACKET")
+            return OptionType(item_type=item_type)
+
         raise ParseError(f"Invalid type at {token.line}:{token.col}: {token.kind}")
 
     def parse_block(self) -> list[Stmt]:
@@ -228,8 +237,23 @@ class Parser:
             f"Unexpected statement token: {token.kind} at {token.line}:{token.col}"
         )
 
-    def parse_if_stmt(self) -> IfStmt:
+    def parse_if_stmt(self) -> Stmt:
         self.expect("IF")
+        if self.match("LET"):
+            binding = self.expect("ID").value
+            self.expect("EQUAL")
+            option_expr = self.parse_expr()
+            then_statements = self.parse_block()
+            else_statements: list[Stmt] | None = None
+            if self.match("ELSE"):
+                else_statements = self.parse_block()
+            return IfLetStmt(
+                binding=binding,
+                option_expr=option_expr,
+                then_statements=then_statements,
+                else_statements=else_statements,
+            )
+
         condition = self.parse_expr()
         then_statements = self.parse_block()
         else_statements: list[Stmt] | None = None
@@ -389,6 +413,10 @@ class Parser:
         if token.kind == "FALSE":
             self.advance()
             return LiteralExpr(value=False)
+
+        if token.kind == "NULL":
+            self.advance()
+            return LiteralExpr(value=None)
 
         if token.kind == "ID":
             parts = [self.advance().value]

@@ -21,6 +21,7 @@ s\ ::=\ & \texttt{let}\ x = \texttt{run}\ t\ \texttt{with}\ \{k_i{:}e_i\}\ [\tex
   \mid\ & \texttt{let}\ x = \texttt{run}\ t\ \texttt{with}\ \{k_i{:}e_i\}\ [\texttt{by}\ a]\ [\texttt{retries}\ n]\ \texttt{on\_fail use}\ e_f \\
   \mid\ & \texttt{parallel}\ \{r_1;\dots;r_m\}\ \texttt{join} \\
   \mid\ & \texttt{if}\ e\ \{s^*\}\ [\texttt{else}\ \{s^*\}] \\
+  \mid\ & \texttt{if let}\ x = e\ \{s^*\}\ [\texttt{else}\ \{s^*\}] \\
   \mid\ & \texttt{return}\ e
 \end{align*}$$
 
@@ -31,13 +32,13 @@ Each \(r_i\) inside a `parallel` block is restricted to the run statement form (
 Variable references and field access chains are unified into a single form \(x.f_1{\cdots}f_n\) where \(n \geq 0\) (\(n = 0\) is a plain variable reference, \(n \geq 1\) is a field access chain of depth \(n\)):
 
 $$\begin{align*}
-e\ ::=\ & c \mid x.f_1{\cdots}f_n \mid (e) \mid \{k_i{:}e_i\} \mid [e^*] \\
+e\ ::=\ & c \mid \texttt{null} \mid x.f_1{\cdots}f_n \mid (e) \mid \{k_i{:}e_i\} \mid [e^*] \\
   \mid\ & e + e \mid e\ {==}\ e \mid e\ {!=}\ e
 \end{align*}$$
 
 **Types:**
 
-$$\tau\ ::=\ \texttt{String} \mid \texttt{Number} \mid \texttt{Bool} \mid \texttt{List}[\tau] \mid \texttt{Obj}\{f_i{:}\tau_i\}$$
+$$\tau\ ::=\ \texttt{String} \mid \texttt{Number} \mid \texttt{Bool} \mid \texttt{List}[\tau] \mid \texttt{Option}[\tau] \mid \texttt{Obj}\{f_i{:}\tau_i\}$$
 
 ---
 
@@ -72,6 +73,8 @@ $$\dfrac{\Gamma \vdash e_1 : \tau \quad \Gamma \vdash e_2 : \tau}{\Gamma \vdash 
 $$\dfrac{\forall\, i\colon\ \Gamma \vdash e_i : \tau_i}{\Gamma \vdash \{k_i{:}e_i\} : \texttt{Obj}\{k_i{:}\tau_i\}} \quad \text{(object literal)}$$
 
 $$\dfrac{\forall\, i\colon\ \Gamma \vdash e_i : \tau}{\Gamma \vdash [e_1,\dots,e_n] : \texttt{List}[\tau]} \quad \text{(list literal — all items same type)}$$
+
+$$\dfrac{}{\Gamma \vdash \texttt{null} : \texttt{Null}} \quad \text{(null literal)}$$
 
 ### Statement typing and environment extension
 
@@ -121,6 +124,18 @@ $$\dfrac{
 }$$
 
 When `else` is absent, the merge treats the implicit false branch as leaving \(\Gamma\) unchanged. A variable re-bound only in the `if` branch is therefore dropped from the merged environment.
+
+**If-let:**
+
+$$\dfrac{
+  \Gamma \vdash e_o : \texttt{Option}[\tau] \qquad
+  \Gamma[x \mapsto \tau] \vdash s_{then}^*\ \dashv \Gamma_{then} \qquad
+  \Gamma \vdash s_{else}^*\ \dashv \Gamma_{else}
+}{
+  \Gamma \vdash \texttt{if let}\ x = e_o\ \{s_{then}^*\}\ \texttt{else}\ \{s_{else}^*\}\ \dashv\ \Gamma \sqcap (\Gamma_{then},\ \Gamma_{else})
+}$$
+
+The binding \(x\) is available only inside the successful unwrap branch and is excluded from the merged environment unless both branches independently bind the same name with the same type.
 
 ### Parallel typing
 
@@ -203,6 +218,10 @@ $$\langle [\texttt{if}\ e_c\ \{s_{then}^*\}] \cdot S,\ E \rangle \;\longrightarr
 
 $$\langle [\texttt{if}\ e_c\ \{s_{then}^*\}] \cdot S,\ E \rangle \;\longrightarrow\; \langle S,\ E \rangle \quad \text{when}\ \mathcal{E}\llbracket e_c \rrbracket_E = \textit{false}$$
 
+**If-let:**
+
+If \(\mathcal{E}\llbracket e_o \rrbracket_E = v \neq \texttt{null}\), execute the `then` branch with \(x\) bound to \(v\). If it is `null`, execute the `else` branch if present, otherwise skip.
+
 **Return:**
 
 $$\langle [\texttt{return}\ e] \cdot S,\ E \rangle \;\longrightarrow\; \mathcal{E}\llbracket e \rrbracket_E$$
@@ -216,3 +235,5 @@ $$\langle [\texttt{return}\ e] \cdot S,\ E \rangle \;\longrightarrow\; \mathcal{
 **Corollary.** A pipeline whose task handlers are all pure functions produces a deterministic output for any given input.
 
 The parallel join is deterministic in its *result set* but not in *execution order* — branch interleavings are unspecified. Final outputs are deterministic because branches bind disjoint names and the merge is a union.
+
+The runtime additionally enforces that task handler outputs and final pipeline return values conform to their declared DSL types; malformed runtime values are execution errors even if the surrounding program parsed and type-checked successfully.

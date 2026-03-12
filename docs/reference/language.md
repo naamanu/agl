@@ -109,6 +109,18 @@ if <expr> {
 
 Condition must have type `Bool`. `else` is optional.
 
+### Option unwrap conditional
+
+```
+if let <x> = <expr> {
+  <statements>
+} [ else {
+  <statements>
+} ]
+```
+
+`<expr>` must have type `Option[T]`. In the `then` branch, `<x>` is bound as `T`. If the option value is `null`, the `else` branch runs instead. `else` is optional.
+
 ### Return
 
 ```
@@ -124,6 +136,7 @@ Expression type must match the pipeline's declared return type.
 | `"string"` | String literal |
 | `123`, `3.14` | Number literal |
 | `true`, `false` | Bool literal |
+| `null` | Null literal (assignable to `Option[T]`) |
 | `x` | Variable reference |
 | `x.field` | Object field access |
 | `{ key: expr, ... }` | Object literal |
@@ -142,6 +155,7 @@ Duplicate keys in object literals are a parse error.
 | Number | `Number` |
 | Bool | `Bool` |
 | List | `List[T]` |
+| Option | `Option[T]` |
 | Object | `Obj{field: Type, field: Type}` |
 
 Duplicate field names in `Obj` types are a parse error.

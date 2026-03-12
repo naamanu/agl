@@ -54,6 +54,7 @@ KEYWORDS = {
     "return",
     "if",
     "else",
+    "null",
     "retries",
     "on_fail",
     "abort",

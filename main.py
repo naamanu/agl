@@ -50,6 +50,11 @@ def main() -> None:
         action="store_true",
         help="Print the lowered pipeline IR for the selected pipeline/workflow and exit.",
     )
+    parser.add_argument(
+        "--trace-live",
+        action="store_true",
+        help="Emit live model/tool tracing to stderr when running with --adapter live.",
+    )
     args = parser.parse_args()
 
     try:
@@ -78,7 +83,11 @@ def main() -> None:
             program=program,
             pipeline_name=args.pipeline,
             inputs=payload,
-            task_registry=default_task_registry(program, adapter_mode=args.adapter),
+            task_registry=default_task_registry(
+                program,
+                adapter_mode=args.adapter,
+                trace_live=args.trace_live,
+            ),
             max_workers=args.workers,
         )
     except Exception as exc:  # noqa: BLE001 - CLI should show concise failures.
@@ -96,8 +105,14 @@ def _repl(argv: list[str]) -> None:
         default=None,
         help="Task adapter mode (default: mock).",
     )
+    parser.add_argument(
+        "--trace-live",
+        action="store_true",
+        help="Emit live model/tool tracing to stderr when running with --adapter live.",
+    )
     args = parser.parse_args(argv)
     adapter = args.adapter
+    trace_live = args.trace_live
 
     try:
         import readline  # noqa: F401 — enables arrow-key history on supported platforms
@@ -140,7 +155,11 @@ def _repl(argv: list[str]) -> None:
                 program=program,
                 pipeline_name=pipeline_name,
                 inputs=payload,
-                task_registry=default_task_registry(program, adapter_mode=adapter),
+                task_registry=default_task_registry(
+                    program,
+                    adapter_mode=adapter,
+                    trace_live=trace_live,
+                ),
             )
             print(json.dumps({"result": result}, indent=2))
         except Exception as exc:  # noqa: BLE001 - REPL should stay alive after errors.

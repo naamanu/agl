@@ -23,7 +23,10 @@ class OpenAIResponsesClient:
         prompt: str,
         system: str | None = None,
         max_output_tokens: int | None = None,
+        trace: Callable[[str], None] | None = None,
     ) -> str:
+        if trace is not None:
+            trace(f"openai request mode=complete model={model}")
         data = self.create_response(
             model=model,
             input_items=self._build_input(prompt=prompt, system=system),
@@ -32,6 +35,8 @@ class OpenAIResponsesClient:
         text = _extract_text(data)
         if not text:
             raise OpenAIAdapterError("OpenAI response contained no text output.")
+        if trace is not None:
+            trace(f"openai response mode=complete text={_preview_text(text)}")
         return text
 
     def complete_with_tools(
@@ -44,7 +49,12 @@ class OpenAIResponsesClient:
         call_tool: Callable[[str, dict[str, Any]], Any],
         max_output_tokens: int | None = None,
         max_round_trips: int = 8,
+        trace: Callable[[str], None] | None = None,
     ) -> str:
+        if trace is not None:
+            trace(
+                f"openai request mode=tool-call model={model} tools={','.join(tool['name'] for tool in tools)}"
+            )
         response = self.create_response(
             model=model,
             input_items=self._build_input(prompt=prompt, system=system),
@@ -59,7 +69,14 @@ class OpenAIResponsesClient:
                 text = _extract_text(response)
                 if not text:
                     raise OpenAIAdapterError("OpenAI response contained no text output.")
+                if trace is not None:
+                    trace(f"openai response mode=tool-call text={_preview_text(text)}")
                 return text
+            if trace is not None:
+                trace(
+                    "openai tool-calls "
+                    + ",".join(tool_call["name"] for tool_call in function_calls)
+                )
 
             output_items: list[dict[str, Any]] = []
             for tool_call in function_calls:
@@ -212,3 +229,10 @@ def _extract_function_calls(payload: dict[str, Any]) -> list[dict[str, str]]:
                 }
             )
     return function_calls
+
+
+def _preview_text(text: str, limit: int = 180) -> str:
+    compact = " ".join(text.split())
+    if len(compact) <= limit:
+        return compact
+    return compact[: limit - 3] + "..."

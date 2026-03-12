@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from dataclasses import dataclass
 from threading import Lock
 from typing import Any, Callable
@@ -30,14 +31,16 @@ class RuntimeAdapterConfig:
     default_model: str
     web_max_results: int
     http_timeout_s: float
+    trace_live: bool
 
 
 def default_task_registry(
     program: Program | None = None,
     *,
     adapter_mode: str | None = None,
+    trace_live: bool | None = None,
 ) -> dict[str, TaskHandler]:
-    config = _resolve_config(adapter_mode)
+    config = _resolve_config(adapter_mode, trace_live=trace_live)
     if program is None:
         raise RuntimeError("default_task_registry requires a parsed program.")
 
@@ -55,6 +58,13 @@ def default_task_registry(
         if config.mode == "live":
             agent_def = resolve_agent(agent)
             model = _resolve_model(agent_def, config.default_model)
+            trace = _start_live_trace(
+                config,
+                task_name="research",
+                agent=agent,
+                model=model,
+                args=args,
+            )
             system = (
                 "You produce factual, concise research notes for downstream agent workflows."
             )
@@ -71,15 +81,28 @@ def default_task_registry(
                     system=system,
                     prompt=prompt,
                     tools=tools,
-                    tool_executor=lambda name, call_args: execute_tool(
-                        program,
-                        name,
-                        call_args,
-                        tool_registry,
+                    tool_executor=_trace_tool_executor(
+                        config,
+                        task_name="research",
+                        agent=agent,
+                        executor=lambda name, call_args: execute_tool(
+                            program,
+                            name,
+                            call_args,
+                            tool_registry,
+                        ),
                     ),
+                    trace=trace,
                 )
             else:
-                text = _complete_live(client, model=model, system=system, prompt=prompt)
+                text = _complete_live(
+                    client,
+                    model=model,
+                    system=system,
+                    prompt=prompt,
+                    trace=trace,
+                )
+            trace(f"result={_preview_value(text)}")
             return {"notes": text}
 
         who = agent or "default-agent"
@@ -90,13 +113,21 @@ def default_task_registry(
         if config.mode == "live":
             agent_def = resolve_agent(agent)
             model = _resolve_model(agent_def, config.default_model)
+            trace = _start_live_trace(
+                config,
+                task_name="draft",
+                agent=agent,
+                model=model,
+                args=args,
+            )
             system = "You write clean drafts for engineering users."
             prompt = (
                 "Write a short, structured draft from these notes.\n"
                 "Use a title and concise sections.\n\n"
                 f"Notes:\n{notes}"
             )
-            text = _complete_live(client, model=model, system=system, prompt=prompt)
+            text = _complete_live(client, model=model, system=system, prompt=prompt, trace=trace)
+            trace(f"result={_preview_value(text)}")
             return {"article": text}
 
         who = agent or "default-agent"
@@ -108,12 +139,20 @@ def default_task_registry(
         if config.mode == "live":
             agent_def = resolve_agent(agent)
             model = _resolve_model(agent_def, config.default_model)
+            trace = _start_live_trace(
+                config,
+                task_name="compare",
+                agent=agent,
+                model=model,
+                args=args,
+            )
             system = "You compare options and return a concrete recommendation."
             prompt = (
                 "Compare option A and B. Provide a clear decision and rationale.\n\n"
                 f"Option A:\n{note_a}\n\nOption B:\n{note_b}"
             )
-            text = _complete_live(client, model=model, system=system, prompt=prompt)
+            text = _complete_live(client, model=model, system=system, prompt=prompt, trace=trace)
+            trace(f"result={_preview_value(text)}")
             return {"decision": text}
 
         who = agent or "default-agent"
@@ -142,11 +181,19 @@ def default_task_registry(
         if config.mode == "live":
             agent_def = resolve_agent(agent)
             model = _resolve_model(agent_def, config.default_model)
+            trace = _start_live_trace(
+                config,
+                task_name="respond",
+                agent=agent,
+                model=model,
+                args=args,
+            )
             prompt = (
                 "Write a short support response to the user based on routing data.\n"
                 f"Intent: {intent}\nQueue: {queue}"
             )
-            text = _complete_live(client, model=model, system=None, prompt=prompt)
+            text = _complete_live(client, model=model, system=None, prompt=prompt, trace=trace)
+            trace(f"result={_preview_value(text)}")
             return {"reply": text}
 
         who = agent or "default-agent"
@@ -179,7 +226,15 @@ def default_task_registry(
             return {"text": f"[{who}] {prompt}"}
         agent_def = resolve_agent(agent)
         model = _resolve_model(agent_def, config.default_model)
-        text = _complete_live(client, model=model, system=None, prompt=prompt)
+        trace = _start_live_trace(
+            config,
+            task_name="llm_complete",
+            agent=agent,
+            model=model,
+            args=args,
+        )
+        text = _complete_live(client, model=model, system=None, prompt=prompt, trace=trace)
+        trace(f"result={_preview_value(text)}")
         return {"text": text}
 
     def countdown(args: dict[str, Any], agent: str | None) -> dict[str, Any]:
@@ -250,7 +305,11 @@ def default_tool_registry(
     }
 
 
-def _resolve_config(adapter_mode: str | None) -> RuntimeAdapterConfig:
+def _resolve_config(
+    adapter_mode: str | None,
+    *,
+    trace_live: bool | None = None,
+) -> RuntimeAdapterConfig:
     mode = (adapter_mode or os.getenv("AGENTLANG_ADAPTER", "mock")).strip().lower()
     if mode not in {"mock", "live"}:
         raise RuntimeError("Adapter mode must be one of: mock, live.")
@@ -258,11 +317,14 @@ def _resolve_config(adapter_mode: str | None) -> RuntimeAdapterConfig:
     default_model = os.getenv("AGENTLANG_DEFAULT_MODEL", "gpt-4.1-mini")
     web_max_results = int(os.getenv("AGENTLANG_WEB_RESULTS", "5"))
     http_timeout_s = float(os.getenv("AGENTLANG_HTTP_TIMEOUT_S", "20"))
+    if trace_live is None:
+        trace_live = _is_truthy_env(os.getenv("AGENTLANG_TRACE_LIVE", "0"))
     return RuntimeAdapterConfig(
         mode=mode,
         default_model=default_model,
         web_max_results=web_max_results,
         http_timeout_s=http_timeout_s,
+        trace_live=trace_live,
     )
 
 
@@ -309,6 +371,7 @@ def _complete_live(
     prompt: str,
     system: str | None,
     max_output_tokens: int = 700,
+    trace: Callable[[str], None] | None = None,
 ) -> str:
     if client is None:
         raise RuntimeError("OpenAI client was not initialized.")
@@ -318,6 +381,7 @@ def _complete_live(
             prompt=prompt,
             system=system,
             max_output_tokens=max_output_tokens,
+            trace=trace,
         )
     except OpenAIAdapterError as exc:
         raise RuntimeError(f"LLM call failed: {exc}") from exc
@@ -332,6 +396,7 @@ def _complete_live_with_tools(
     tools: list[dict[str, Any]],
     tool_executor: Callable[[str, dict[str, Any]], Any],
     max_output_tokens: int = 700,
+    trace: Callable[[str], None] | None = None,
 ) -> str:
     if client is None:
         raise RuntimeError("OpenAI client was not initialized.")
@@ -343,6 +408,7 @@ def _complete_live_with_tools(
             tools=tools,
             call_tool=tool_executor,
             max_output_tokens=max_output_tokens,
+            trace=trace,
         )
     except OpenAIAdapterError as exc:
         raise RuntimeError(f"LLM call failed: {exc}") from exc
@@ -373,6 +439,13 @@ def _make_agent_task_handler(
         agent_def = resolve_agent(agent)
         model = _resolve_model(agent_def, config.default_model)
         tools = _agent_tool_definitions(program, agent_def)
+        trace = _start_live_trace(
+            config,
+            task_name=task.name,
+            agent=agent,
+            model=model,
+            args=args,
+        )
         system = (
             "You are executing a typed AgentLang task. "
             "Use tools when helpful. Return only valid compact JSON for the declared return schema."
@@ -392,13 +465,19 @@ def _make_agent_task_handler(
                 prompt=prompt,
                 system=system,
                 tools=tools,
-                tool_executor=lambda name, call_args: execute_tool(
-                    program,
-                    name,
-                    call_args,
-                    tool_registry,
+                tool_executor=_trace_tool_executor(
+                    config,
+                    task_name=task.name,
+                    agent=agent,
+                    executor=lambda name, call_args: execute_tool(
+                        program,
+                        name,
+                        call_args,
+                        tool_registry,
+                    ),
                 ),
                 max_output_tokens=1800,
+                trace=trace,
             )
         else:
             raw = _complete_live(
@@ -407,16 +486,89 @@ def _make_agent_task_handler(
                 system=system,
                 prompt=prompt,
                 max_output_tokens=1800,
+                trace=trace,
             )
+        trace(f"raw={_preview_value(raw)}")
 
         try:
-            return json.loads(raw)
+            result = json.loads(raw)
         except json.JSONDecodeError as exc:
+            trace(f"error=non-json-output raw={_preview_value(raw)}")
             raise RuntimeError(
                 f"Agent task '{task.name}' returned non-JSON output: {raw!r}"
             ) from exc
+        trace(f"result={_preview_value(result)}")
+        return result
 
     return handler
+
+
+def _start_live_trace(
+    config: RuntimeAdapterConfig,
+    *,
+    task_name: str,
+    agent: str | None,
+    model: str,
+    args: dict[str, Any],
+) -> Callable[[str], None]:
+    prefix = (
+        f"task={task_name} agent={agent or 'default-agent'} "
+        f"model={model}"
+    )
+    _trace(config, f"{prefix} start args={_preview_value(args)}")
+    return lambda message: _trace(config, f"{prefix} {message}")
+
+
+def _trace_tool_executor(
+    config: RuntimeAdapterConfig,
+    *,
+    task_name: str,
+    agent: str | None,
+    executor: Callable[[str, dict[str, Any]], Any],
+) -> Callable[[str, dict[str, Any]], Any]:
+    agent_name = agent or "default-agent"
+
+    def traced(name: str, call_args: dict[str, Any]) -> Any:
+        _trace(
+            config,
+            f"task={task_name} agent={agent_name} tool={name} call args={_preview_value(call_args)}",
+        )
+        try:
+            result = executor(name, call_args)
+        except Exception as exc:  # noqa: BLE001 - tracing should not alter task semantics
+            _trace(
+                config,
+                f"task={task_name} agent={agent_name} tool={name} error={type(exc).__name__}: {exc}",
+            )
+            raise
+        _trace(
+            config,
+            f"task={task_name} agent={agent_name} tool={name} result={_preview_value(result)}",
+        )
+        return result
+
+    return traced
+
+
+def _trace(config: RuntimeAdapterConfig, message: str) -> None:
+    if config.mode != "live" or not config.trace_live:
+        return
+    print(f"[trace] {message}", file=sys.stderr)
+
+
+def _preview_value(value: Any, *, limit: int = 200) -> str:
+    try:
+        rendered = json.dumps(value, ensure_ascii=True, sort_keys=True)
+    except TypeError:
+        rendered = repr(value)
+    compact = " ".join(rendered.split())
+    if len(compact) <= limit:
+        return compact
+    return compact[: limit - 3] + "..."
+
+
+def _is_truthy_env(value: str) -> bool:
+    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _agent_tool_definitions(program: Program, agent_def: AgentDef | None) -> list[dict[str, Any]]:

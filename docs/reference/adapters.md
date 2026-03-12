@@ -52,9 +52,11 @@ python main.py examples/blog.agent blog_post \
 
 ## Web search tool
 
-When an agent declares `tools: [web_search]`, the `research` task in live mode fetches DuckDuckGo results and injects them into the prompt context.
+When an agent declares `tools: [web_search]`, the `research` task in live mode exposes that declared tool to the model through the runtime tool registry. The model can then call `web_search` during task execution.
 
 ```agentlang
+tool web_search(query: String) -> List[Obj{title: String, url: String, snippet: String}] {}
+
 agent planner {
   model: "gpt-4.1"
   , tools: [web_search]
@@ -66,6 +68,16 @@ export AGENTLANG_WEB_RESULTS=10   # fetch 10 results instead of the default 5
 ```
 
 In mock mode, `web_search` in the tools list is parsed and stored but has no effect.
+
+## Fetch URL tool
+
+When an agent declares `tools: [fetch_url]`, live model tasks can request raw page text for a URL through the runtime tool registry.
+
+```agentlang
+tool fetch_url(url: String) -> Obj{content: String} {}
+```
+
+In mock mode, `fetch_url` returns a deterministic placeholder string instead of performing a network request.
 
 ## Model resolution
 

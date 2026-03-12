@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass
 from threading import Lock
@@ -10,11 +11,14 @@ from .adapters import (
     OpenAIResponsesClient,
     ToolAdapterError,
     duckduckgo_search,
+    fetch_url_text,
     format_search_hits,
 )
-from .ast import AgentDef, Program
+from .ast import AgentDef, ListType, ObjType, OptionType, PrimitiveType, Program, TaskDef, TypeExpr
+from .runtime import execute_tool
 
 TaskHandler = Callable[[dict[str, Any], str | None], Any]
+ToolHandler = Callable[[dict[str, Any]], Any]
 
 _flaky_attempts: dict[str, int] = {}
 _flaky_attempts_lock = Lock()
@@ -34,7 +38,11 @@ def default_task_registry(
     adapter_mode: str | None = None,
 ) -> dict[str, TaskHandler]:
     config = _resolve_config(adapter_mode)
-    agent_map = program.agents if program is not None else {}
+    if program is None:
+        raise RuntimeError("default_task_registry requires a parsed program.")
+
+    agent_map = program.agents
+    tool_registry = default_tool_registry(adapter_mode=adapter_mode)
     client = _build_openai_client(config)
 
     def resolve_agent(agent_name: str | None) -> AgentDef | None:
@@ -47,23 +55,31 @@ def default_task_registry(
         if config.mode == "live":
             agent_def = resolve_agent(agent)
             model = _resolve_model(agent_def, config.default_model)
-            search_context = ""
-            if agent_def is not None and "web_search" in agent_def.tools:
-                search_context = _run_search_context(
-                    topic,
-                    max_results=config.web_max_results,
-                    timeout_s=config.http_timeout_s,
-                )
             system = (
                 "You produce factual, concise research notes for downstream agent workflows."
             )
             prompt = (
                 f"Topic: {topic}\n\n"
-                "If web context is present, prioritize it.\n"
-                f"Web context:\n{search_context or 'No external context.'}\n\n"
+                "Use available tools when they would improve factual grounding.\n"
                 "Return 5-8 short bullet points in plain text."
             )
-            text = _complete_live(client, model=model, system=system, prompt=prompt)
+            tools = _agent_tool_definitions(program, agent_def)
+            if tools:
+                text = _complete_live_with_tools(
+                    client,
+                    model=model,
+                    system=system,
+                    prompt=prompt,
+                    tools=tools,
+                    tool_executor=lambda name, call_args: execute_tool(
+                        program,
+                        name,
+                        call_args,
+                        tool_registry,
+                    ),
+                )
+            else:
+                text = _complete_live(client, model=model, system=system, prompt=prompt)
             return {"notes": text}
 
         who = agent or "default-agent"
@@ -166,7 +182,18 @@ def default_task_registry(
         text = _complete_live(client, model=model, system=None, prompt=prompt)
         return {"text": text}
 
-    return {
+    def countdown(args: dict[str, Any], agent: str | None) -> dict[str, Any]:
+        current = float(args["current"])
+        next_value = current - 1
+        if next_value < 0:
+            next_value = 0
+        if next_value.is_integer():
+            next_number: int | float = int(next_value)
+        else:
+            next_number = next_value
+        return {"next": next_number, "done": next_number <= 0}
+
+    registry = {
         "research": research,
         "draft": draft,
         "compare": compare,
@@ -175,6 +202,51 @@ def default_task_registry(
         "respond": respond,
         "flaky_fetch": flaky_fetch,
         "llm_complete": llm_complete,
+        "countdown": countdown,
+    }
+
+    for task in program.tasks.values():
+        if task.execution_mode == "agent":
+            registry[task.name] = _make_agent_task_handler(
+                program,
+                task,
+                config=config,
+                resolve_agent=resolve_agent,
+                client=client,
+                tool_registry=tool_registry,
+            )
+
+    return registry
+
+
+def default_tool_registry(
+    *,
+    adapter_mode: str | None = None,
+) -> dict[str, ToolHandler]:
+    config = _resolve_config(adapter_mode)
+
+    def web_search(args: dict[str, Any]) -> list[dict[str, str]]:
+        query = str(args["query"])
+        return _run_web_search(
+            query,
+            max_results=config.web_max_results,
+            timeout_s=config.http_timeout_s,
+        )
+
+    def fetch_url(args: dict[str, Any]) -> dict[str, str]:
+        url = str(args["url"])
+        if config.mode != "live":
+            return {"content": f"[fetch_url] {url}"}
+        return {
+            "content": _run_fetch_url(
+                url,
+                timeout_s=config.http_timeout_s,
+            )
+        }
+
+    return {
+        "web_search": web_search,
+        "fetch_url": fetch_url,
     }
 
 
@@ -216,12 +288,18 @@ def _resolve_model(agent_def: AgentDef | None, default_model: str) -> str:
     return agent_def.model
 
 
-def _run_search_context(topic: str, *, max_results: int, timeout_s: float) -> str:
+def _run_web_search(query: str, *, max_results: int, timeout_s: float) -> list[dict[str, str]]:
     try:
-        hits = duckduckgo_search(topic, max_results=max_results, timeout_s=timeout_s)
+        return duckduckgo_search(query, max_results=max_results, timeout_s=timeout_s)
     except ToolAdapterError as exc:
-        return f"Search unavailable: {exc}"
-    return format_search_hits(hits)
+        raise RuntimeError(f"Tool 'web_search' failed: {exc}") from exc
+
+
+def _run_fetch_url(url: str, *, timeout_s: float) -> str:
+    try:
+        return fetch_url_text(url, timeout_s=timeout_s)
+    except ToolAdapterError as exc:
+        raise RuntimeError(f"Tool 'fetch_url' failed: {exc}") from exc
 
 
 def _complete_live(
@@ -230,10 +308,213 @@ def _complete_live(
     model: str,
     prompt: str,
     system: str | None,
+    max_output_tokens: int = 700,
 ) -> str:
     if client is None:
         raise RuntimeError("OpenAI client was not initialized.")
     try:
-        return client.complete(model=model, prompt=prompt, system=system, max_output_tokens=700)
+        return client.complete(
+            model=model,
+            prompt=prompt,
+            system=system,
+            max_output_tokens=max_output_tokens,
+        )
     except OpenAIAdapterError as exc:
         raise RuntimeError(f"LLM call failed: {exc}") from exc
+
+
+def _complete_live_with_tools(
+    client: OpenAIResponsesClient | None,
+    *,
+    model: str,
+    prompt: str,
+    system: str | None,
+    tools: list[dict[str, Any]],
+    tool_executor: Callable[[str, dict[str, Any]], Any],
+    max_output_tokens: int = 700,
+) -> str:
+    if client is None:
+        raise RuntimeError("OpenAI client was not initialized.")
+    try:
+        return client.complete_with_tools(
+            model=model,
+            prompt=prompt,
+            system=system,
+            tools=tools,
+            call_tool=tool_executor,
+            max_output_tokens=max_output_tokens,
+        )
+    except OpenAIAdapterError as exc:
+        raise RuntimeError(f"LLM call failed: {exc}") from exc
+
+
+def _make_agent_task_handler(
+    program: Program,
+    task: TaskDef,
+    *,
+    config: RuntimeAdapterConfig,
+    resolve_agent: Callable[[str | None], AgentDef | None],
+    client: OpenAIResponsesClient | None,
+    tool_registry: dict[str, ToolHandler],
+) -> TaskHandler:
+    def handler(args: dict[str, Any], agent: str | None) -> Any:
+        if agent is None:
+            raise RuntimeError(
+                f"Agent task '{task.name}' requires a bound agent at runtime."
+            )
+
+        if config.mode != "live":
+            return _mock_value_for_type(
+                task.return_type,
+                label=f"{agent}:{task.name}",
+                seed_args=args,
+            )
+
+        agent_def = resolve_agent(agent)
+        model = _resolve_model(agent_def, config.default_model)
+        tools = _agent_tool_definitions(program, agent_def)
+        system = (
+            "You are executing a typed AgentLang task. "
+            "Use tools when helpful. Return only valid compact JSON for the declared return schema."
+        )
+        prompt = (
+            f"Task name: {task.name}\n"
+            f"Task inputs:\n{json.dumps(args, indent=2, sort_keys=True)}\n\n"
+            f"Return schema:\n{json.dumps(_type_to_json_schema(task.return_type), indent=2)}\n\n"
+            "Return only minified JSON on a single line. "
+            "Do not include markdown fences, commentary, or pretty-printing whitespace."
+        )
+
+        if tools:
+            raw = _complete_live_with_tools(
+                client,
+                model=model,
+                prompt=prompt,
+                system=system,
+                tools=tools,
+                tool_executor=lambda name, call_args: execute_tool(
+                    program,
+                    name,
+                    call_args,
+                    tool_registry,
+                ),
+                max_output_tokens=1800,
+            )
+        else:
+            raw = _complete_live(
+                client,
+                model=model,
+                system=system,
+                prompt=prompt,
+                max_output_tokens=1800,
+            )
+
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(
+                f"Agent task '{task.name}' returned non-JSON output: {raw!r}"
+            ) from exc
+
+    return handler
+
+
+def _agent_tool_definitions(program: Program, agent_def: AgentDef | None) -> list[dict[str, Any]]:
+    if agent_def is None:
+        return []
+
+    tool_defs: list[dict[str, Any]] = []
+    for tool_name in agent_def.tools:
+        tool = program.tools.get(tool_name)
+        if tool is None:
+            continue
+        tool_defs.append(
+            {
+                "type": "function",
+                "name": tool.name,
+                "description": f"Execute the '{tool.name}' tool declared in AgentLang.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        param.name: _type_to_json_schema(param.type_expr)
+                        for param in tool.params
+                    },
+                    "required": [param.name for param in tool.params],
+                    "additionalProperties": False,
+                },
+            }
+        )
+    return tool_defs
+
+
+def _type_to_json_schema(type_expr: TypeExpr) -> dict[str, Any]:
+    if isinstance(type_expr, PrimitiveType):
+        if type_expr.name == "String":
+            return {"type": "string"}
+        if type_expr.name == "Number":
+            return {"type": "number"}
+        if type_expr.name == "Bool":
+            return {"type": "boolean"}
+        raise RuntimeError(f"Unsupported primitive type '{type_expr.name}'.")
+
+    if isinstance(type_expr, ListType):
+        return {
+            "type": "array",
+            "items": _type_to_json_schema(type_expr.item_type),
+        }
+
+    if isinstance(type_expr, ObjType):
+        return {
+            "type": "object",
+            "properties": {
+                field: _type_to_json_schema(field_type)
+                for field, field_type in type_expr.fields.items()
+            },
+            "required": list(type_expr.fields),
+            "additionalProperties": False,
+        }
+
+    if isinstance(type_expr, OptionType):
+        schema = _type_to_json_schema(type_expr.item_type)
+        schema_type = schema.get("type")
+        if isinstance(schema_type, list):
+            return {**schema, "type": [*schema_type, "null"]}
+        if isinstance(schema_type, str):
+            return {**schema, "type": [schema_type, "null"]}
+        return {"anyOf": [schema, {"type": "null"}]}
+
+    raise RuntimeError(f"Unsupported type for JSON schema conversion: {type_expr}.")
+
+
+def _mock_value_for_type(
+    type_expr: TypeExpr,
+    *,
+    label: str,
+    seed_args: dict[str, Any],
+) -> Any:
+    if isinstance(type_expr, PrimitiveType):
+        if type_expr.name == "String":
+            if "topic" in seed_args:
+                return f"[{label}] {seed_args['topic']}"
+            if "query" in seed_args:
+                return f"[{label}] {seed_args['query']}"
+            return f"[{label}]"
+        if type_expr.name == "Number":
+            return 0
+        if type_expr.name == "Bool":
+            return False
+        raise RuntimeError(f"Unsupported primitive type '{type_expr.name}'.")
+
+    if isinstance(type_expr, ListType):
+        return []
+
+    if isinstance(type_expr, OptionType):
+        return None
+
+    if isinstance(type_expr, ObjType):
+        return {
+            field: _mock_value_for_type(field_type, label=f"{label}.{field}", seed_args=seed_args)
+            for field, field_type in type_expr.fields.items()
+        }
+
+    raise RuntimeError(f"Unsupported mock generation type: {type_expr}.")

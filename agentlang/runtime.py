@@ -7,6 +7,8 @@ from typing import Any, Callable
 
 from .ast import (
     BinaryExpr,
+    BreakStmt,
+    ContinueStmt,
     Expr,
     IfLetStmt,
     IfStmt,
@@ -24,9 +26,11 @@ from .ast import (
     RunStmt,
     Stmt,
     TypeExpr,
+    WhileStmt,
 )
 
 TaskHandler = Callable[[dict[str, Any], str | None], Any]
+ToolHandler = Callable[[dict[str, Any]], Any]
 
 
 class RuntimeError(ValueError):
@@ -36,6 +40,14 @@ class RuntimeError(ValueError):
 @dataclass
 class _PipelineReturned(Exception):
     value: Any
+
+
+class _LoopBreak(Exception):
+    pass
+
+
+class _LoopContinue(Exception):
+    pass
 
 
 def execute_pipeline(
@@ -71,6 +83,47 @@ def execute_pipeline(
         return returned.value
 
     raise RuntimeError(f"Pipeline '{pipeline_name}' completed without return.")
+
+
+def execute_tool(
+    program: Program,
+    tool_name: str,
+    args: dict[str, Any],
+    tool_registry: dict[str, ToolHandler],
+) -> Any:
+    tool = program.tools.get(tool_name)
+    if tool is None:
+        raise RuntimeError(f"Unknown tool '{tool_name}'.")
+
+    handler = tool_registry.get(tool_name)
+    if handler is None:
+        raise RuntimeError(f"No runtime handler registered for tool '{tool_name}'.")
+
+    expected_params = {param.name: param.type_expr for param in tool.params}
+    provided_params = set(args)
+
+    missing = set(expected_params) - provided_params
+    extra = provided_params - set(expected_params)
+    if missing:
+        raise RuntimeError(f"Tool '{tool_name}' missing args: {sorted(missing)}.")
+    if extra:
+        raise RuntimeError(f"Tool '{tool_name}' received unknown args: {sorted(extra)}.")
+
+    for param_name, expected_type in expected_params.items():
+        value = args[param_name]
+        if not _is_value_assignable(value, expected_type):
+            raise RuntimeError(
+                f"Tool '{tool_name}' arg '{param_name}' has invalid value {value!r} "
+                f"for type {expected_type}."
+            )
+
+    result = handler(copy.deepcopy(args))
+    if not _is_value_assignable(result, tool.return_type):
+        raise RuntimeError(
+            f"Tool '{tool_name}' returned invalid value {result!r} "
+            f"for type {tool.return_type}."
+        )
+    return result
 
 
 def _execute_block(
@@ -115,10 +168,33 @@ def _execute_block(
                         del env[stmt.binding]
             continue
 
+        if isinstance(stmt, WhileStmt):
+            while True:
+                condition = _eval_expr(stmt.condition, env)
+                if not isinstance(condition, bool):
+                    raise RuntimeError("While condition did not evaluate to Bool.")
+                if not condition:
+                    break
+                try:
+                    _execute_block(program, stmt.statements, env, task_registry, max_workers)
+                except _LoopContinue:
+                    continue
+                except _LoopBreak:
+                    break
+            continue
+
+        if isinstance(stmt, BreakStmt):
+            raise _LoopBreak()
+
+        if isinstance(stmt, ContinueStmt):
+            raise _LoopContinue()
+
         if isinstance(stmt, ReturnStmt):
             raise _PipelineReturned(_eval_expr(stmt.expr, env))
 
         raise RuntimeError(f"Unsupported statement in runtime: {type(stmt).__name__}")
+
+    return None
 
 
 def _execute_parallel(

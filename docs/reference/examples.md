@@ -1,6 +1,6 @@
 # Examples
 
-AgentLang ships with six `.agent` examples in `examples/`. Each one exercises a distinct set of language features.
+AgentLang ships with twelve `.agent` examples in `examples/`. Each one exercises a distinct set of language features.
 
 ---
 
@@ -9,6 +9,8 @@ AgentLang ships with six `.agent` examples in `examples/`. Each one exercises a 
 **Features:** sequential `let` statements, two agents, field access
 
 ```agentlang
+tool web_search(query: String) -> List[Obj{title: String, url: String, snippet: String}] {}
+
 agent planner {
   model: "gpt-4.1"
   , tools: [web_search]
@@ -47,6 +49,8 @@ python main.py examples/blog.agent blog_post \
 **Features:** `parallel { } join`, merging branch outputs downstream
 
 ```agentlang
+tool web_search(query: String) -> List[Obj{title: String, url: String, snippet: String}] {}
+
 agent planner {
   model: "gpt-4.1"
   , tools: [web_search]
@@ -227,6 +231,8 @@ python main.py examples/live_answer.agent answer \
 **Features:** tool-enabled research agent, parallel research, downstream comparison, direct LLM prompt, final drafting step
 
 ```agentlang
+tool web_search(query: String) -> List[Obj{title: String, url: String, snippet: String}] {}
+
 agent scout {
   model: "gpt-4.1"
   , tools: [web_search]
@@ -268,6 +274,219 @@ python main.py examples/complete_agent.agent executive_brief \
 ```
 
 This example is the closest thing in-tree to a "complete agent" workflow: a tool-enabled scout gathers context, an analyst synthesizes a decision, and a writer turns that into a final artifact.
+
+---
+
+## `tool_declarations.agent` — first-class tool declarations
+
+**Features:** declared `tool`, agent tool reference validation
+
+```agentlang
+tool web_search(query: String) -> List[Obj{title: String, url: String, snippet: String}] {}
+
+agent researcher {
+  model: "gpt-4.1-mini"
+  , tools: [web_search]
+}
+
+pipeline declared_tool_name(query: String) -> String {
+  return "declared " + query;
+}
+```
+
+```bash
+python main.py examples/tool_declarations.agent declared_tool_name \
+  --input '{"query":"web_search"}'
+```
+
+```json
+{
+  "result": "declared web_search"
+}
+```
+
+---
+
+## `tool_backed_research.agent` — tool-backed research task
+
+**Features:** declared tool, agent capability binding, tool-aware `research` task
+
+```agentlang
+tool web_search(query: String) -> List[Obj{title: String, url: String, snippet: String}] {}
+
+agent scout {
+  model: "gpt-4.1"
+  , tools: [web_search]
+}
+
+task research(topic: String) -> Obj{notes: String} {}
+
+pipeline notes(topic: String) -> String {
+  let r = run research with { topic: topic } by scout;
+  return r.notes;
+}
+```
+
+```bash
+python main.py examples/tool_backed_research.agent notes \
+  --input '{"topic":"incident response"}'
+```
+
+```json
+{
+  "result": "[scout] key points for 'incident response'"
+}
+```
+
+Live mode uses the declared `web_search` tool when the model decides it needs external grounding:
+
+```bash
+python main.py examples/tool_backed_research.agent notes \
+  --adapter live \
+  --input '{"topic":"incident response"}'
+```
+
+---
+
+## `agent_task.agent` — task declared for agent execution
+
+**Features:** `task ... by agent {}`, explicit agent binding, declared tool access
+
+```agentlang
+tool web_search(query: String) -> List[Obj{title: String, url: String, snippet: String}] {}
+
+agent researcher {
+  model: "gpt-4.1"
+  , tools: [web_search]
+}
+
+task investigate(topic: String) -> Obj{summary: String, sources: List[String]} by agent {}
+
+pipeline brief(topic: String) -> String {
+  let r = run investigate with { topic: topic } by researcher;
+  return r.summary;
+}
+```
+
+Mock mode:
+
+```bash
+python main.py examples/agent_task.agent brief \
+  --input '{"topic":"incident response"}'
+```
+
+```json
+{
+  "result": "[researcher:investigate.summary] incident response"
+}
+```
+
+Live mode:
+
+```bash
+python main.py examples/agent_task.agent brief \
+  --adapter live \
+  --input '{"topic":"incident response"}'
+```
+
+---
+
+## `multiagent_blog.agent` — multi-agent blog pipeline with bounded review loop
+
+**Features:** multiple agents, multiple tools, agent tasks, explicit planner-reviewer revision cycle, editor and publisher handoff
+
+```agentlang
+tool web_search(query: String) -> List[Obj{title: String, url: String, snippet: String}] {}
+tool fetch_url(url: String) -> Obj{content: String} {}
+
+agent planner {
+  model: "gpt-4.1"
+  , tools: [web_search, fetch_url]
+}
+
+agent reviewer {
+  model: "gpt-4.1-mini"
+  , tools: [web_search]
+}
+
+agent editor {
+  model: "gpt-4.1-mini"
+  , tools: []
+}
+
+agent publisher {
+  model: "gpt-4.1-mini"
+  , tools: []
+}
+```
+
+This example uses a real review loop. The planner produces an outline, the reviewer approves or rejects it, and the pipeline keeps revising until the outline is approved or the revision budget is exhausted.
+
+```bash
+python main.py examples/multiagent_blog.agent publish_topic_blog \
+  --input '{"topic":"agent memory systems"}'
+```
+
+---
+
+## `while_loop.agent` — first-class looping construct
+
+**Features:** `while`, variable rebinding, deterministic loop progress
+
+```agentlang
+agent ops {
+  model: "gpt-4.1-mini"
+  , tools: []
+}
+
+task countdown(current: Number) -> Obj{next: Number, done: Bool} {}
+
+pipeline loop_to_zero(start: Number) -> Number {
+  let state = run countdown with { current: start } by ops;
+
+  while state.done == false {
+    let state = run countdown with { current: state.next } by ops;
+  }
+
+  return state.next;
+}
+```
+
+```bash
+python main.py examples/while_loop.agent loop_to_zero \
+  --input '{"start":3}'
+```
+
+```json
+{
+  "result": 0
+}
+```
+
+---
+
+## `break_continue.agent` — loop control flow
+
+**Features:** `while`, `break`, `continue`, variable rebinding
+
+```bash
+python main.py examples/break_continue.agent stop_early \
+  --input '{"start":4}'
+python main.py examples/break_continue.agent skip_once \
+  --input '{"start":4}'
+```
+
+```json
+{
+  "result": 2
+}
+```
+
+```json
+{
+  "result": 0
+}
+```
 
 ---
 

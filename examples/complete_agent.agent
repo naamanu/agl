@@ -1,3 +1,5 @@
+tool web_search(query: String) -> List[Obj{title: String, url: String, snippet: String}] {}
+
 agent scout {
   model: "gpt-4.1"
   , tools: [web_search]

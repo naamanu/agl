@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from urllib import error, parse, request
 
 
@@ -79,6 +80,32 @@ def format_search_hits(hits: list[dict[str, str]]) -> str:
     return "\n".join(lines)
 
 
+def fetch_url_text(
+    url: str,
+    *,
+    timeout_s: float = 15.0,
+    max_bytes: int = 50000,
+) -> str:
+    req = request.Request(
+        url=url,
+        method="GET",
+        headers={"User-Agent": "AgentLang/0.1 (+https://nanamanu.com/agl)"},
+    )
+    try:
+        with request.urlopen(req, timeout=timeout_s) as resp:
+            raw = resp.read(max_bytes)
+    except error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise ToolAdapterError(f"fetch_url HTTP {exc.code}: {detail}") from exc
+    except error.URLError as exc:
+        raise ToolAdapterError(f"fetch_url network error: {exc.reason}") from exc
+    except TimeoutError as exc:
+        raise ToolAdapterError("fetch_url request timed out.") from exc
+
+    text = raw.decode("utf-8", errors="replace")
+    return _extract_visible_text(text)
+
+
 def _flatten_related(items: object) -> list[dict[str, object]]:
     if not isinstance(items, list):
         return []
@@ -99,3 +126,10 @@ def _title_from_text(text: str) -> str:
         return text.split(" - ", 1)[0].strip()
     return text[:80].strip()
 
+
+def _extract_visible_text(text: str) -> str:
+    text = re.sub(r"(?is)<script.*?>.*?</script>", " ", text)
+    text = re.sub(r"(?is)<style.*?>.*?</style>", " ", text)
+    text = re.sub(r"(?s)<[^>]+>", " ", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()

@@ -4,15 +4,23 @@ This page gives a precise mathematical account of AgentLang v0: abstract syntax,
 
 ## 1. Abstract Syntax
 
-A program is a triple of agent definitions, task signatures, and pipeline definitions:
+A program is a quadruple of agent definitions, tool signatures, task signatures, and pipeline definitions:
 
-$$P ::= \langle A, T, W \rangle$$
+$$P ::= \langle A, U, T, W \rangle$$
 
-where \(A\) is the set of agent definitions, \(T\) the set of task signatures, and \(W\) the set of pipeline definitions.
+where \(A\) is the set of agent definitions, \(U\) the set of tool signatures, \(T\) the set of task signatures, and \(W\) the set of pipeline definitions.
+
+A tool signature declares typed inputs and a typed output for runtime-executable tools:
+
+$$u : (x_1{:}\tau_1,\ \dots,\ x_n{:}\tau_n) \to \tau_o$$
 
 A task signature declares its input parameters and return type:
 
 $$t : (x_1{:}\tau_1,\ \dots,\ x_n{:}\tau_n) \to \tau_o$$
+
+Agent tasks add an execution marker:
+
+$$t^{agent} : (x_1{:}\tau_1,\ \dots,\ x_n{:}\tau_n) \to \tau_o$$
 
 **Pipeline statement forms:**
 
@@ -21,6 +29,9 @@ s\ ::=\ & \texttt{let}\ x = \texttt{run}\ t\ \texttt{with}\ \{k_i{:}e_i\}\ [\tex
   \mid\ & \texttt{let}\ x = \texttt{run}\ t\ \texttt{with}\ \{k_i{:}e_i\}\ [\texttt{by}\ a]\ [\texttt{retries}\ n]\ \texttt{on\_fail use}\ e_f \\
   \mid\ & \texttt{parallel}\ \{r_1;\dots;r_m\}\ \texttt{join} \\
   \mid\ & \texttt{if}\ e\ \{s^*\}\ [\texttt{else}\ \{s^*\}] \\
+  \mid\ & \texttt{while}\ e\ \{s^*\} \\
+  \mid\ & \texttt{break} \\
+  \mid\ & \texttt{continue} \\
   \mid\ & \texttt{if let}\ x = e\ \{s^*\}\ [\texttt{else}\ \{s^*\}] \\
   \mid\ & \texttt{return}\ e
 \end{align*}$$
@@ -49,6 +60,7 @@ $$\tau\ ::=\ \texttt{String} \mid \texttt{Number} \mid \texttt{Bool} \mid \textt
 | Symbol | Definition |
 |---|---|
 | \(\Gamma : \text{Var} \to \tau\) | Typing environment — maps variable names to their types |
+| \(\Upsilon : \text{ToolName} \to (\vec{\tau}_{in}, \tau_{out})\) | Tool table — maps tool names to their signatures |
 | \(\Sigma : \text{TaskName} \to (\vec{\tau}_{in}, \tau_{out})\) | Task table — maps task names to their signatures |
 | \(\Delta : \text{AgentName} \to \text{AgentSpec}\) | Agent table — maps agent names to their specs |
 
@@ -89,6 +101,8 @@ $$\dfrac{
 }$$
 
 with side-condition \(a \in \text{dom}(\Delta)\) when `by a` is present.
+
+If \(t\) is an agent task, then `by a` is required.
 
 **Fallback policy:**
 
@@ -137,6 +151,12 @@ $$\dfrac{
 
 The binding \(x\) is available only inside the successful unwrap branch and is excluded from the merged environment unless both branches independently bind the same name with the same type.
 
+**While:**
+
+The loop condition must have type `Bool`. The post-loop environment is conservatively merged with the pre-loop environment just like an `if` without `else`, because the loop body may execute zero or many times.
+
+`break` and `continue` are only well-typed inside loop bodies.
+
 ### Parallel typing
 
 $$\dfrac{
@@ -184,6 +204,8 @@ A runtime configuration is a pair \(\langle S,\ E \rangle\) where:
 
 $$\langle [\texttt{let}\ x = \texttt{run}\ t\ \vec{a}] \cdot S,\ E \rangle \;\longrightarrow\; \langle S,\ E[x \mapsto \text{handler}(t,\ \mathcal{A}\llbracket\vec{a}\rrbracket_E)] \rangle$$
 
+For agent tasks, the handler is synthesized by the runtime: the bound agent selects a model and tool set, the model may emit tool calls, tool calls are executed against the runtime tool registry, and the final model output is decoded into a runtime value that must match the declared task return type.
+
 **Retry:** on failure, re-submits the run statement with the retry counter decremented. When the budget reaches zero, the failure policy applies.
 
 **Failure policy — abort:**
@@ -218,6 +240,16 @@ $$\langle [\texttt{if}\ e_c\ \{s_{then}^*\}] \cdot S,\ E \rangle \;\longrightarr
 
 $$\langle [\texttt{if}\ e_c\ \{s_{then}^*\}] \cdot S,\ E \rangle \;\longrightarrow\; \langle S,\ E \rangle \quad \text{when}\ \mathcal{E}\llbracket e_c \rrbracket_E = \textit{false}$$
 
+**While:**
+
+$$\langle [\texttt{while}\ e_c\ \{s^*\}] \cdot S,\ E \rangle \;\longrightarrow\; \langle s^* \cdot [\texttt{while}\ e_c\ \{s^*\}] \cdot S,\ E \rangle \quad \text{when}\ \mathcal{E}\llbracket e_c \rrbracket_E = \textit{true}$$
+
+$$\langle [\texttt{while}\ e_c\ \{s^*\}] \cdot S,\ E \rangle \;\longrightarrow\; \langle S,\ E \rangle \quad \text{when}\ \mathcal{E}\llbracket e_c \rrbracket_E = \textit{false}$$
+
+**Break / Continue:**
+
+`break` exits the nearest enclosing loop. `continue` skips the remaining statements in the current iteration and re-evaluates the loop condition.
+
 **If-let:**
 
 If \(\mathcal{E}\llbracket e_o \rrbracket_E = v \neq \texttt{null}\), execute the `then` branch with \(x\) bound to \(v\). If it is `null`, execute the `else` branch if present, otherwise skip.
@@ -237,3 +269,5 @@ $$\langle [\texttt{return}\ e] \cdot S,\ E \rangle \;\longrightarrow\; \mathcal{
 The parallel join is deterministic in its *result set* but not in *execution order* — branch interleavings are unspecified. Final outputs are deterministic because branches bind disjoint names and the merge is a union.
 
 The runtime additionally enforces that task handler outputs and final pipeline return values conform to their declared DSL types; malformed runtime values are execution errors even if the surrounding program parsed and type-checked successfully.
+
+Declared tools are also validated dynamically: tool call arguments and tool results must conform to their DSL signatures.

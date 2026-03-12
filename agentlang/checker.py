@@ -4,6 +4,8 @@ from dataclasses import dataclass
 
 from .ast import (
     BinaryExpr,
+    BreakStmt,
+    ContinueStmt,
     Expr,
     IfLetStmt,
     IfStmt,
@@ -22,6 +24,7 @@ from .ast import (
     RunStmt,
     Stmt,
     TypeExpr,
+    WhileStmt,
 )
 
 
@@ -35,8 +38,19 @@ class _NullType(TypeExpr):
 
 
 def check_program(program: Program) -> None:
+    _check_tools(program)
     for pipeline in program.pipelines.values():
         _check_pipeline(program, pipeline)
+
+
+def _check_tools(program: Program) -> None:
+    declared_tools = set(program.tools)
+    for agent in program.agents.values():
+        for tool_name in agent.tools:
+            if tool_name not in declared_tools:
+                raise TypeCheckError(
+                    f"Agent '{agent.name}' references unknown tool '{tool_name}'."
+                )
 
 
 def _check_pipeline(program: Program, pipeline: PipelineDef) -> None:
@@ -51,6 +65,7 @@ def _check_block(
     pipeline: PipelineDef,
     statements: list[Stmt],
     env: dict[str, TypeExpr],
+    in_loop: bool = False,
 ) -> bool:
     saw_return = False
     for stmt in statements:
@@ -80,7 +95,13 @@ def _check_block(
                     f"If condition must be Bool, got {cond_type} in pipeline '{pipeline.name}'."
                 )
             then_env = dict(env)
-            then_return = _check_block(program, pipeline, stmt.then_statements, then_env)
+            then_return = _check_block(
+                program,
+                pipeline,
+                stmt.then_statements,
+                then_env,
+                in_loop=in_loop,
+            )
             if stmt.else_statements is None:
                 merged = _common_bindings(env, then_env, env)
                 env.clear()
@@ -89,7 +110,13 @@ def _check_block(
                 continue
 
             else_env = dict(env)
-            else_return = _check_block(program, pipeline, stmt.else_statements, else_env)
+            else_return = _check_block(
+                program,
+                pipeline,
+                stmt.else_statements,
+                else_env,
+                in_loop=in_loop,
+            )
             merged = _common_bindings(env, then_env, else_env)
             env.clear()
             env.update(merged)
@@ -110,7 +137,13 @@ def _check_block(
 
             then_env = dict(env)
             then_env[stmt.binding] = option_type.item_type
-            then_return = _check_block(program, pipeline, stmt.then_statements, then_env)
+            then_return = _check_block(
+                program,
+                pipeline,
+                stmt.then_statements,
+                then_env,
+                in_loop=in_loop,
+            )
             if stmt.else_statements is None:
                 merged = _common_bindings(env, then_env, env)
                 env.clear()
@@ -118,11 +151,50 @@ def _check_block(
                 continue
 
             else_env = dict(env)
-            else_return = _check_block(program, pipeline, stmt.else_statements, else_env)
+            else_return = _check_block(
+                program,
+                pipeline,
+                stmt.else_statements,
+                else_env,
+                in_loop=in_loop,
+            )
             merged = _common_bindings(env, then_env, else_env)
             env.clear()
             env.update(merged)
             saw_return = saw_return or (then_return and else_return)
+            continue
+
+        if isinstance(stmt, WhileStmt):
+            cond_type = _infer_expr_type(stmt.condition, env)
+            if not _is_assignable(cond_type, PrimitiveType("Bool")):
+                raise TypeCheckError(
+                    f"While condition must be Bool, got {cond_type} in pipeline '{pipeline.name}'."
+                )
+            loop_env = dict(env)
+            _check_block(
+                program,
+                pipeline,
+                stmt.statements,
+                loop_env,
+                in_loop=True,
+            )
+            merged = _common_bindings(env, loop_env, env)
+            env.clear()
+            env.update(merged)
+            continue
+
+        if isinstance(stmt, BreakStmt):
+            if not in_loop:
+                raise TypeCheckError(
+                    f"'break' is only valid inside while loops in pipeline '{pipeline.name}'."
+                )
+            continue
+
+        if isinstance(stmt, ContinueStmt):
+            if not in_loop:
+                raise TypeCheckError(
+                    f"'continue' is only valid inside while loops in pipeline '{pipeline.name}'."
+                )
             continue
 
         if isinstance(stmt, ReturnStmt):
@@ -165,6 +237,11 @@ def _check_run_stmt(program: Program, stmt: RunStmt, env: dict[str, TypeExpr]) -
 
     if stmt.agent_name is not None and stmt.agent_name not in program.agents:
         raise TypeCheckError(f"Unknown agent '{stmt.agent_name}'.")
+
+    if task.execution_mode == "agent" and stmt.agent_name is None:
+        raise TypeCheckError(
+            f"Agent task '{task.name}' must be run with an explicit agent binding."
+        )
 
     if stmt.retries < 0:
         raise TypeCheckError("Retries cannot be negative.")

@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from .ast import (
     AgentDef,
     BinaryExpr,
+    BreakStmt,
+    ContinueStmt,
     Expr,
     IfLetStmt,
     IfStmt,
@@ -24,7 +26,9 @@ from .ast import (
     RunStmt,
     Stmt,
     TaskDef,
+    ToolDef,
     TypeExpr,
+    WhileStmt,
 )
 from .lexer import Token, lex
 
@@ -63,6 +67,7 @@ class Parser:
 
     def parse_program(self) -> Program:
         agents: dict[str, AgentDef] = {}
+        tools: dict[str, ToolDef] = {}
         tasks: dict[str, TaskDef] = {}
         pipelines: dict[str, PipelineDef] = {}
 
@@ -73,6 +78,11 @@ class Parser:
                 if agent.name in agents:
                     raise ParseError(f"Duplicate agent: {agent.name}")
                 agents[agent.name] = agent
+            elif token_kind == "TOOL":
+                tool = self.parse_tool()
+                if tool.name in tools:
+                    raise ParseError(f"Duplicate tool: {tool.name}")
+                tools[tool.name] = tool
             elif token_kind == "TASK":
                 task = self.parse_task()
                 if task.name in tasks:
@@ -89,7 +99,7 @@ class Parser:
                     f"Unexpected token {token.kind} at {token.line}:{token.col}"
                 )
 
-        return Program(agents=agents, tasks=tasks, pipelines=pipelines)
+        return Program(agents=agents, tools=tools, tasks=tasks, pipelines=pipelines)
 
     def parse_agent(self) -> AgentDef:
         self.expect("AGENT")
@@ -130,9 +140,30 @@ class Parser:
         self.expect("RPAREN")
         self.expect("ARROW")
         return_type = self.parse_type()
+        execution_mode = "handler"
+        if self.match("BY"):
+            self.expect("AGENT")
+            execution_mode = "agent"
         self.expect("LBRACE")
         self.expect("RBRACE")
-        return TaskDef(name=name, params=params, return_type=return_type)
+        return TaskDef(
+            name=name,
+            params=params,
+            return_type=return_type,
+            execution_mode=execution_mode,
+        )
+
+    def parse_tool(self) -> ToolDef:
+        self.expect("TOOL")
+        name = self.expect("ID").value
+        self.expect("LPAREN")
+        params = self.parse_params()
+        self.expect("RPAREN")
+        self.expect("ARROW")
+        return_type = self.parse_type()
+        self.expect("LBRACE")
+        self.expect("RBRACE")
+        return ToolDef(name=name, params=params, return_type=return_type)
 
     def parse_pipeline(self) -> PipelineDef:
         self.expect("PIPELINE")
@@ -227,11 +258,24 @@ class Parser:
         if token.kind == "IF":
             return self.parse_if_stmt()
 
+        if token.kind == "WHILE":
+            return self.parse_while_stmt()
+
         if token.kind == "RETURN":
             self.advance()
             expr = self.parse_expr()
             self.expect("SEMI")
             return ReturnStmt(expr=expr)
+
+        if token.kind == "BREAK":
+            self.advance()
+            self.expect("SEMI")
+            return BreakStmt()
+
+        if token.kind == "CONTINUE":
+            self.advance()
+            self.expect("SEMI")
+            return ContinueStmt()
 
         raise ParseError(
             f"Unexpected statement token: {token.kind} at {token.line}:{token.col}"
@@ -264,6 +308,12 @@ class Parser:
             then_statements=then_statements,
             else_statements=else_statements,
         )
+
+    def parse_while_stmt(self) -> WhileStmt:
+        self.expect("WHILE")
+        condition = self.parse_expr()
+        statements = self.parse_block()
+        return WhileStmt(condition=condition, statements=statements)
 
     def parse_parallel_stmt(self) -> ParallelStmt:
         self.expect("PARALLEL")

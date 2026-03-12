@@ -4,12 +4,17 @@ Complete syntax reference for AgentLang v0.
 
 ## File structure
 
-An `.agent` file contains any number of `agent`, `task`, and `pipeline` declarations in any order. Names must be unique across each declaration type.
+An `.agent` file contains any number of `agent`, `tool`, `task`, and `pipeline` declarations in any order. Names must be unique across each declaration type.
 
 ```agentlang
+tool web_search(query: String) -> List[Obj{title: String, url: String, snippet: String}] {}
+
 -- agent declarations
 agent planner { model: "gpt-4.1", tools: [web_search] }
 agent writer  { model: "gpt-4.1-mini", tools: [] }
+
+-- tool declarations
+tool web_search(query: String) -> List[Obj{title: String, url: String, snippet: String}] {}
 
 -- task signatures
 task research(topic: String) -> Obj{notes: String} {}
@@ -39,10 +44,12 @@ agent <name> {
 
 Constraints: agent names unique, tool names unique within the list.
 
-## `task` declaration
+Agent tool names must refer to declared `tool` definitions.
+
+## `tool` declaration
 
 ```
-task <name>( <params> ) -> <type> {}
+tool <name>( <params> ) -> <type> {}
 ```
 
 | Part | Description |
@@ -50,9 +57,32 @@ task <name>( <params> ) -> <type> {}
 | `<name>` | Unique identifier |
 | `<params>` | Comma-separated `name: Type` pairs (may be empty) |
 | `-> <type>` | Return type |
+| `{}` | Reserved for runtime-provided tool behavior |
+
+Constraints: tool names unique, parameter names unique within a tool.
+
+## `task` declaration
+
+```
+task <name>( <params> ) -> <type> {}
+```
+
+or
+
+```
+task <name>( <params> ) -> <type> by agent {}
+```
+
+| Part | Description |
+|---|---|
+| `<name>` | Unique identifier |
+| `<params>` | Comma-separated `name: Type` pairs (may be empty) |
+| `-> <type>` | Return type |
+| `by agent` | Marks the task as model-executed instead of handler-executed |
 | `{}` | Always empty — behavior is provided by runtime handlers |
 
 Constraints: task names unique, parameter names unique within a task.
+Agent tasks must be run with an explicit `by <agent>` binding in pipeline statements.
 
 ## `pipeline` declaration
 
@@ -108,6 +138,25 @@ if <expr> {
 ```
 
 Condition must have type `Bool`. `else` is optional.
+
+### While loop
+
+```
+while <expr> {
+  <statements>
+}
+```
+
+Condition must have type `Bool`. The loop body may contain the same statement forms as a pipeline block.
+
+### Break / Continue
+
+```
+break;
+continue;
+```
+
+`break` exits the nearest enclosing `while`. `continue` skips to the next iteration of the nearest enclosing `while`. Both are only valid inside loop bodies.
 
 ### Option unwrap conditional
 

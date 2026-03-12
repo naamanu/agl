@@ -3,6 +3,8 @@
 A tiny, self-contained DSL for agentic workflows. Define agents, typed tasks, and pipelines — run them with deterministic mock adapters or live OpenAI backends.
 
 ```agentlang
+tool web_search(query: String) -> List[Obj{title: String, url: String, snippet: String}] {}
+
 agent planner {
   model: "gpt-4.1"
   , tools: [web_search]
@@ -86,7 +88,7 @@ agentlang/
   runtime.py    -- pipeline executor
   stdlib.py     -- built-in task handlers
   adapters/     -- OpenAI + tool adapters
-examples/       -- six runnable .agent programs
+examples/       -- twelve runnable .agent programs
 docs/           -- full documentation (MkDocs)
 main.py         -- CLI entrypoint
 ```

@@ -41,6 +41,7 @@ TOKEN_RE = re.compile(
 
 KEYWORDS = {
     "agent",
+    "tool",
     "task",
     "pipeline",
     "model",
@@ -53,7 +54,10 @@ KEYWORDS = {
     "join",
     "return",
     "if",
+    "while",
     "else",
+    "break",
+    "continue",
     "null",
     "retries",
     "on_fail",

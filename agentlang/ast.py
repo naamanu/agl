@@ -46,6 +46,14 @@ class TaskDef:
     name: str
     params: list[Param]
     return_type: TypeExpr
+    execution_mode: str = "handler"
+
+
+@dataclass(frozen=True)
+class ToolDef:
+    name: str
+    params: list[Param]
+    return_type: TypeExpr
 
 
 @dataclass(frozen=True)
@@ -117,6 +125,22 @@ class IfLetStmt(Stmt):
 
 
 @dataclass(frozen=True)
+class WhileStmt(Stmt):
+    condition: Expr
+    statements: list[Stmt]
+
+
+@dataclass(frozen=True)
+class BreakStmt(Stmt):
+    pass
+
+
+@dataclass(frozen=True)
+class ContinueStmt(Stmt):
+    pass
+
+
+@dataclass(frozen=True)
 class ReturnStmt(Stmt):
     expr: Expr
 
@@ -132,5 +156,6 @@ class PipelineDef:
 @dataclass(frozen=True)
 class Program:
     agents: dict[str, AgentDef]
+    tools: dict[str, ToolDef]
     tasks: dict[str, TaskDef]
     pipelines: dict[str, PipelineDef]

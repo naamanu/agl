@@ -1,3 +1,5 @@
+tool web_search(query: String) -> List[Obj{title: String, url: String, snippet: String}] {}
+
 agent planner {
   model: "gpt-4.1"
   , tools: [web_search]
@@ -20,4 +22,3 @@ pipeline compare_options(query: String) -> String {
   let c = run compare with { note_a: a.notes, note_b: b.notes } by reviewer;
   return c.decision;
 }
-

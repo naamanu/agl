@@ -1,0 +1,16 @@
+agent ops {
+  model: "gpt-4.1-mini"
+  , tools: []
+}
+
+task countdown(current: Number) -> Obj{next: Number, done: Bool} {}
+
+pipeline loop_to_zero(start: Number) -> Number {
+  let state = run countdown with { current: start } by ops;
+
+  while state.done == false {
+    let state = run countdown with { current: state.next } by ops;
+  }
+
+  return state.next;
+}

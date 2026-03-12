@@ -14,6 +14,8 @@ agent <name> {
 ## Example
 
 ```agentlang
+tool web_search(query: String) -> List[Obj{title: String, url: String, snippet: String}] {}
+
 agent planner {
   model: "gpt-4.1"
   , tools: [web_search]
@@ -29,7 +31,7 @@ agent writer {
 
 - `model` is required and must be a string literal.
 - `tools` is required. Use `[]` for an empty tool list.
-- Tool names are identifiers — they are validated against known tool adapters at runtime.
+- Tool names are identifiers and must be declared with `tool` definitions in the DSL.
 - Agent names must be unique within a file.
 - Duplicate tool names in the list are a parse error.
 
@@ -55,12 +57,13 @@ When `by` is omitted, the runtime falls back to the `AGENTLANG_DEFAULT_MODEL` en
 
 Tools are identifiers that activate additional adapter behavior in `live` mode.
 
-Currently supported tool:
+Currently supported tools:
 
 | Tool | Effect in live mode |
 |---|---|
-| `web_search` | Fetches DuckDuckGo results and injects them into the `research` task prompt |
+| `web_search` | Exposes a typed search tool that live model tasks may call at runtime |
+| `fetch_url` | Fetches page content and exposes extracted text to live model tasks |
 
-In `mock` mode, tools are parsed and stored but have no effect on execution.
+In `mock` mode, tools are parsed and stored but do not trigger external network calls.
 
 ## Next: [Tasks](tasks.md)

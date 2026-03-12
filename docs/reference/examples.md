@@ -1,6 +1,6 @@
 # Examples
 
-AgentLang ships with twelve `.agent` examples in `examples/`. Each one exercises a distinct set of language features.
+AgentLang ships with fourteen `.agent` examples in `examples/`. Each one exercises a distinct set of language features.
 
 ---
 
@@ -443,6 +443,52 @@ python main.py examples/multiagent_blog.agent publish_topic_blog \
   --input '{"topic":"agent memory systems"}'
 
 python main.py examples/multiagent_blog.agent publish_topic_blog \
+  --lower
+```
+
+---
+
+## `incident_runbook.agent` — declarative incident workflow
+
+**Features:** `workflow`, `stage`, `review`, tool-backed planning, revision budget, final publishing handoff
+
+```agentlang
+tool web_search(query: String) -> List[Obj{title: String, url: String, snippet: String}] {}
+tool fetch_url(url: String) -> Obj{content: String} {}
+
+agent researcher {
+  model: "gpt-4.1"
+  , tools: [web_search, fetch_url]
+}
+
+agent reviewer {
+  model: "gpt-4.1-mini"
+  , tools: [web_search]
+}
+
+agent commander {
+  model: "gpt-4.1-mini"
+  , tools: []
+}
+
+task draft_response_plan(incident: String) -> Obj{plan: String, sources: List[String]} by agent {}
+task review_response_plan(incident: String, plan: String, sources: List[String]) -> Obj{approved: Bool, feedback: String} by agent {}
+task revise_response_plan(incident: String, plan: String, sources: List[String], feedback: String) -> Obj{plan: String, sources: List[String]} by agent {}
+task publish_runbook(incident: String, plan: String) -> Obj{runbook: String} by agent {}
+
+workflow respond_to_incident(incident: String) -> String {
+  stage draft_plan = researcher does draft_response_plan(incident);
+  review response_plan = reviewer checks draft_plan revise with researcher using revise_response_plan max_rounds 2;
+  stage published = commander does publish_runbook(incident, response_plan.plan);
+  return published.runbook;
+}
+```
+
+```bash
+python main.py examples/incident_runbook.agent respond_to_incident \
+  --input '{"incident":"database failover drill"}'
+
+python main.py examples/incident_runbook.agent respond_to_incident \
   --lower
 ```
 

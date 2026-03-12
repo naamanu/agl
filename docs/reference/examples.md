@@ -391,9 +391,9 @@ python main.py examples/agent_task.agent brief \
 
 ---
 
-## `multiagent_blog.agent` — multi-agent blog pipeline with bounded review loop
+## `multiagent_blog.agent` — declarative workflow with internal review looping
 
-**Features:** multiple agents, multiple tools, agent tasks, explicit planner-reviewer revision cycle, editor and publisher handoff
+**Features:** `workflow`, `stage`, `review`, inferred review task, internal planner-reviewer revision loop, editor and publisher handoff
 
 ```agentlang
 tool web_search(query: String) -> List[Obj{title: String, url: String, snippet: String}] {}
@@ -418,13 +418,32 @@ agent publisher {
   model: "gpt-4.1-mini"
   , tools: []
 }
+
+task plan_blog(topic: String) -> Obj{outline: String, sources: List[String]} by agent {}
+task review_outline(topic: String, outline: String, sources: List[String]) -> Obj{approved: Bool, feedback: String} by agent {}
+task revise_outline(topic: String, outline: String, sources: List[String], feedback: String) -> Obj{outline: String, sources: List[String]} by agent {}
+task write_blog(topic: String, outline: String) -> Obj{article: String} by agent {}
+task edit_blog(topic: String, article: String) -> Obj{title: String, article: String} by agent {}
+task publish_blog(topic: String, title: String, article: String) -> Obj{post: String} by agent {}
+
+workflow publish_topic_blog(topic: String) -> String {
+  stage plan = planner does plan_blog(topic);
+  review outline = reviewer checks plan revise with planner using revise_outline max_rounds 3;
+  stage draft = planner does write_blog(topic, outline.outline);
+  stage edited = editor does edit_blog(topic, draft.article);
+  stage published = publisher does publish_blog(topic, edited.title, edited.article);
+  return published.post;
+}
 ```
 
-This example uses a real review loop. The planner produces an outline, the reviewer approves or rejects it, and the pipeline keeps revising until the outline is approved or the revision budget is exhausted.
+This example is the higher-level authoring model: the user declares stages and a review policy, and the compiler lowers that to an explicit pipeline with `run`, `while`, and `break` internally. The planner produces an outline, the reviewer approves or rejects it, and the revise/re-review loop happens in the lowered IR instead of the source file.
 
 ```bash
 python main.py examples/multiagent_blog.agent publish_topic_blog \
   --input '{"topic":"agent memory systems"}'
+
+python main.py examples/multiagent_blog.agent publish_topic_blog \
+  --lower
 ```
 
 ---

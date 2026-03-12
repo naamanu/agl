@@ -4,7 +4,14 @@ import argparse
 import json
 import sys
 
-from agentlang import check_program, default_task_registry, execute_pipeline, parse_program
+from agentlang import (
+    check_program,
+    default_task_registry,
+    execute_pipeline,
+    format_pipeline,
+    lower_program,
+    parse_program,
+)
 
 
 def main() -> None:
@@ -13,10 +20,10 @@ def main() -> None:
         return
 
     parser = argparse.ArgumentParser(
-        description="Run AgentLang pipelines from .agent source files."
+        description="Run AgentLang pipelines or workflows from .agent source files."
     )
     parser.add_argument("source", help="Path to .agent file")
-    parser.add_argument("pipeline", help="Pipeline name to execute")
+    parser.add_argument("pipeline", help="Pipeline or workflow name to execute")
     parser.add_argument(
         "--input",
         default="{}",
@@ -38,6 +45,11 @@ def main() -> None:
             "live = OpenAI + real tool adapters."
         ),
     )
+    parser.add_argument(
+        "--lower",
+        action="store_true",
+        help="Print the lowered pipeline IR for the selected pipeline/workflow and exit.",
+    )
     args = parser.parse_args()
 
     try:
@@ -50,7 +62,16 @@ def main() -> None:
 
     try:
         source_text = _read_text(args.source)
-        program = parse_program(source_text)
+        raw_program = parse_program(source_text, lower=False)
+        program = lower_program(raw_program)
+
+        if args.lower:
+            lowered = program.pipelines.get(args.pipeline)
+            if lowered is None:
+                raise ValueError(f"Unknown pipeline or workflow '{args.pipeline}'.")
+            print(format_pipeline(lowered))
+            return
+
         check_program(program)
 
         result = execute_pipeline(

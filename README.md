@@ -1,6 +1,6 @@
 # AgentLang
 
-A tiny, self-contained DSL for agentic workflows. Define agents, typed tasks, and pipelines — run them with deterministic mock adapters or live OpenAI backends.
+A tiny, self-contained DSL for agentic workflows. Define agents, typed tasks, declarative workflows, and low-level pipelines — then run them with deterministic mock adapters or live OpenAI backends.
 
 ```agentlang
 tool web_search(query: String) -> List[Obj{title: String, url: String, snippet: String}] {}

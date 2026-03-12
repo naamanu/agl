@@ -3,7 +3,16 @@ from __future__ import annotations
 from dataclasses import replace
 import unittest
 
-from agentlang import check_program, default_task_registry, execute_pipeline, execute_tool, parse_program
+from agentlang import (
+    check_program,
+    default_task_registry,
+    execute_pipeline,
+    execute_tool,
+    format_pipeline,
+    lower_program,
+    parse_program,
+)
+from agentlang.lowering import LoweringError
 from agentlang.ast import PrimitiveType
 from agentlang.checker import TypeCheckError
 from agentlang.runtime import RuntimeError as AgentLangRuntimeError
@@ -383,41 +392,13 @@ task revise_outline(topic: String, outline: String, sources: List[String], feedb
 task write_blog(topic: String, outline: String) -> Obj{article: String} by agent {}
 task edit_blog(topic: String, article: String) -> Obj{title: String, article: String} by agent {}
 task publish_blog(topic: String, title: String, article: String) -> Obj{post: String} by agent {}
-task countdown(current: Number) -> Obj{next: Number, done: Bool} {}
 
-pipeline publish_topic_blog(topic: String) -> String {
-  let current = run plan_blog with { topic: topic } by planner;
-  let review = run review_outline with {
-    topic: topic,
-    outline: current.outline,
-    sources: current.sources
-  } by reviewer;
-  let remaining = run countdown with { current: 3 } by planner;
-
-  while review.approved == false {
-    if remaining.done {
-      break;
-    }
-
-    let current = run revise_outline with {
-      topic: topic,
-      outline: current.outline,
-      sources: current.sources,
-      feedback: review.feedback
-    } by planner;
-
-    let review = run review_outline with {
-      topic: topic,
-      outline: current.outline,
-      sources: current.sources
-    } by reviewer;
-    let remaining = run countdown with { current: remaining.next } by planner;
-    continue;
-  }
-
-  let draft = run write_blog with { topic: topic, outline: current.outline } by planner;
-  let edited = run edit_blog with { topic: topic, article: draft.article } by editor;
-  let published = run publish_blog with { topic: topic, title: edited.title, article: edited.article } by publisher;
+workflow publish_topic_blog(topic: String) -> String {
+  stage plan = planner does plan_blog(topic);
+  review outline = reviewer checks plan revise with planner using revise_outline max_rounds 3;
+  stage draft = planner does write_blog(topic, outline.outline);
+  stage edited = editor does edit_blog(topic, draft.article);
+  stage published = publisher does publish_blog(topic, edited.title, edited.article);
   return published.post;
 }
 """
@@ -429,6 +410,62 @@ pipeline publish_topic_blog(topic: String) -> String {
             default_task_registry(program, adapter_mode="mock"),
         )
         self.assertEqual(result, "[publisher:publish_blog.post] incident response")
+
+    def test_workflow_lowers_review_loop_to_pipeline_ir(self) -> None:
+        source = """
+agent planner {
+  model: "gpt-4.1"
+  , tools: []
+}
+
+agent reviewer {
+  model: "gpt-4.1-mini"
+  , tools: []
+}
+
+task plan_blog(topic: String) -> Obj{outline: String, sources: List[String]} by agent {}
+task review_outline(topic: String, outline: String, sources: List[String]) -> Obj{approved: Bool, feedback: String} by agent {}
+task revise_outline(topic: String, outline: String, sources: List[String], feedback: String) -> Obj{outline: String, sources: List[String]} by agent {}
+
+workflow publish_topic_blog(topic: String) -> Obj{outline: String, sources: List[String]} {
+  stage plan = planner does plan_blog(topic);
+  review outline = reviewer checks plan revise with planner using revise_outline max_rounds 2;
+  return outline;
+}
+"""
+        raw_program = parse_program(source, lower=False)
+        lowered = lower_program(raw_program)
+        rendered = format_pipeline(lowered.pipelines["publish_topic_blog"])
+        self.assertIn("let __outline_review = run review_outline", rendered)
+        self.assertIn("while __outline_review.approved == false", rendered)
+        self.assertIn("let __outline_remaining = run countdown", rendered)
+
+    def test_workflow_rejects_consumed_artifact_reference(self) -> None:
+        source = """
+agent planner {
+  model: "gpt-4.1"
+  , tools: []
+}
+
+agent reviewer {
+  model: "gpt-4.1-mini"
+  , tools: []
+}
+
+task plan_blog(topic: String) -> Obj{outline: String, sources: List[String]} by agent {}
+task review_outline(topic: String, outline: String, sources: List[String]) -> Obj{approved: Bool, feedback: String} by agent {}
+task revise_outline(topic: String, outline: String, sources: List[String], feedback: String) -> Obj{outline: String, sources: List[String]} by agent {}
+task write_blog(topic: String, outline: String) -> Obj{article: String} by agent {}
+
+workflow bad(topic: String) -> String {
+  stage plan = planner does plan_blog(topic);
+  review outline = reviewer checks plan revise with planner using revise_outline max_rounds 1;
+  stage draft = planner does write_blog(topic, plan.outline);
+  return draft.article;
+}
+"""
+        with self.assertRaisesRegex(LoweringError, r"consumed artifact 'plan'"):
+            parse_program(source)
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@
 
 **A tiny, self-contained DSL for agentic workflows.**
 
-Define agents, typed tasks, and pipelines — then run them with deterministic mock adapters or live OpenAI backends. No framework. No magic. Everything compiles from source to execution in Python.
+Define agents, typed tasks, declarative workflows, and explicit pipelines — then run them with deterministic mock adapters or live OpenAI backends. No framework. No magic. Everything compiles from source to execution in Python.
 
 ```agentlang
 tool web_search(query: String) -> List[Obj{title: String, url: String, snippet: String}] {}

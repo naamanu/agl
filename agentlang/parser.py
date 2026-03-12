@@ -28,6 +28,11 @@ from .ast import (
     TaskDef,
     ToolDef,
     TypeExpr,
+    WorkflowDef,
+    WorkflowReturnStep,
+    WorkflowReviewStep,
+    WorkflowStageStep,
+    WorkflowStep,
     WhileStmt,
 )
 from .lexer import Token, lex
@@ -70,6 +75,7 @@ class Parser:
         tools: dict[str, ToolDef] = {}
         tasks: dict[str, TaskDef] = {}
         pipelines: dict[str, PipelineDef] = {}
+        workflows: dict[str, WorkflowDef] = {}
 
         while self.current().kind != "EOF":
             token_kind = self.current().kind
@@ -93,13 +99,24 @@ class Parser:
                 if pipeline.name in pipelines:
                     raise ParseError(f"Duplicate pipeline: {pipeline.name}")
                 pipelines[pipeline.name] = pipeline
+            elif token_kind == "WORKFLOW":
+                workflow = self.parse_workflow()
+                if workflow.name in workflows or workflow.name in pipelines:
+                    raise ParseError(f"Duplicate workflow: {workflow.name}")
+                workflows[workflow.name] = workflow
             else:
                 token = self.current()
                 raise ParseError(
                     f"Unexpected token {token.kind} at {token.line}:{token.col}"
                 )
 
-        return Program(agents=agents, tools=tools, tasks=tasks, pipelines=pipelines)
+        return Program(
+            agents=agents,
+            tools=tools,
+            tasks=tasks,
+            pipelines=pipelines,
+            workflows=workflows,
+        )
 
     def parse_agent(self) -> AgentDef:
         self.expect("AGENT")
@@ -181,6 +198,22 @@ class Parser:
             statements=statements,
         )
 
+    def parse_workflow(self) -> WorkflowDef:
+        self.expect("WORKFLOW")
+        name = self.expect("ID").value
+        self.expect("LPAREN")
+        params = self.parse_params()
+        self.expect("RPAREN")
+        self.expect("ARROW")
+        return_type = self.parse_type()
+        steps = self.parse_workflow_block()
+        return WorkflowDef(
+            name=name,
+            params=params,
+            return_type=return_type,
+            steps=steps,
+        )
+
     def parse_params(self) -> list[Param]:
         params: list[Param] = []
         seen: set[str] = set()
@@ -243,6 +276,74 @@ class Parser:
             statements.append(self.parse_stmt())
         self.expect("RBRACE")
         return statements
+
+    def parse_workflow_block(self) -> list[WorkflowStep]:
+        self.expect("LBRACE")
+        steps: list[WorkflowStep] = []
+        while self.current().kind != "RBRACE":
+            steps.append(self.parse_workflow_step())
+        self.expect("RBRACE")
+        return steps
+
+    def parse_workflow_step(self) -> WorkflowStep:
+        token = self.current()
+
+        if token.kind == "STAGE":
+            self.advance()
+            target = self.expect("ID").value
+            self.expect("EQUAL")
+            agent_name = self.expect("ID").value
+            self.expect("DOES")
+            task_name = self.expect("ID").value
+            self.expect("LPAREN")
+            args = self.parse_call_args()
+            self.expect("RPAREN")
+            self.expect("SEMI")
+            return WorkflowStageStep(
+                target=target,
+                agent_name=agent_name,
+                task_name=task_name,
+                args=args,
+            )
+
+        if token.kind == "REVIEW":
+            self.advance()
+            target = self.expect("ID").value
+            self.expect("EQUAL")
+            reviewer_agent = self.expect("ID").value
+            self.expect("CHECKS")
+            source = self.expect("ID").value
+            self.expect("REVISE")
+            self.expect("WITH")
+            reviser_agent = self.expect("ID").value
+            self.expect("USING")
+            revise_task_name = self.expect("ID").value
+            self.expect("MAX_ROUNDS")
+            rounds_token = self.expect("NUMBER")
+            if "." in rounds_token.value:
+                raise ParseError("max_rounds must be an integer.")
+            max_rounds = int(rounds_token.value)
+            if max_rounds < 0:
+                raise ParseError("max_rounds cannot be negative.")
+            self.expect("SEMI")
+            return WorkflowReviewStep(
+                target=target,
+                reviewer_agent=reviewer_agent,
+                source=source,
+                reviser_agent=reviser_agent,
+                revise_task_name=revise_task_name,
+                max_rounds=max_rounds,
+            )
+
+        if token.kind == "RETURN":
+            self.advance()
+            expr = self.parse_expr()
+            self.expect("SEMI")
+            return WorkflowReturnStep(expr=expr)
+
+        raise ParseError(
+            f"Unexpected workflow step token: {token.kind} at {token.line}:{token.col}"
+        )
 
     def parse_stmt(self) -> Stmt:
         token = self.current()
@@ -408,6 +509,16 @@ class Parser:
         self.expect("RBRACE")
         return args
 
+    def parse_call_args(self) -> list[Expr]:
+        args: list[Expr] = []
+        if self.current().kind == "RPAREN":
+            return args
+        while True:
+            args.append(self.parse_expr())
+            if not self.match("COMMA"):
+                break
+        return args
+
     def parse_expr(self) -> Expr:
         return self.parse_equality()
 
@@ -505,6 +616,12 @@ class Parser:
         return ListExpr(items=items)
 
 
-def parse_program(source: str) -> Program:
+def parse_program(source: str, *, lower: bool = True) -> Program:
     parser = Parser(tokens=lex(source))
-    return parser.parse_program()
+    program = parser.parse_program()
+    if not lower:
+        return program
+
+    from .lowering import lower_program
+
+    return lower_program(program)

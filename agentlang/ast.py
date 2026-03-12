@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
@@ -146,6 +146,34 @@ class ReturnStmt(Stmt):
 
 
 @dataclass(frozen=True)
+class WorkflowStep:
+    pass
+
+
+@dataclass(frozen=True)
+class WorkflowStageStep(WorkflowStep):
+    target: str
+    agent_name: str
+    task_name: str
+    args: list[Expr]
+
+
+@dataclass(frozen=True)
+class WorkflowReviewStep(WorkflowStep):
+    target: str
+    reviewer_agent: str
+    source: str
+    reviser_agent: str
+    revise_task_name: str
+    max_rounds: int
+
+
+@dataclass(frozen=True)
+class WorkflowReturnStep(WorkflowStep):
+    expr: Expr
+
+
+@dataclass(frozen=True)
 class PipelineDef:
     name: str
     params: list[Param]
@@ -154,8 +182,17 @@ class PipelineDef:
 
 
 @dataclass(frozen=True)
+class WorkflowDef:
+    name: str
+    params: list[Param]
+    return_type: TypeExpr
+    steps: list[WorkflowStep]
+
+
+@dataclass(frozen=True)
 class Program:
     agents: dict[str, AgentDef]
     tools: dict[str, ToolDef]
     tasks: dict[str, TaskDef]
     pipelines: dict[str, PipelineDef]
+    workflows: dict[str, WorkflowDef] = field(default_factory=dict)

@@ -4,7 +4,7 @@ Complete syntax reference for AgentLang v0.
 
 ## File structure
 
-An `.agent` file contains any number of `agent`, `tool`, `task`, and `pipeline` declarations in any order. Names must be unique across each declaration type.
+An `.agent` file contains any number of `agent`, `tool`, `task`, `pipeline`, and `workflow` declarations in any order. Names must be unique across each declaration type.
 
 ```agentlang
 tool web_search(query: String) -> List[Obj{title: String, url: String, snippet: String}] {}
@@ -25,6 +25,13 @@ pipeline blog_post(topic: String) -> String {
   let r = run research with { topic: topic } by planner;
   let d = run draft with { notes: r.notes } by writer;
   return d.article;
+}
+
+-- workflow definitions
+workflow publish_topic_blog(topic: String) -> String {
+  stage plan = planner does research(topic);
+  stage draft = writer does draft(plan.notes);
+  return draft.article;
 }
 ```
 
@@ -93,6 +100,52 @@ pipeline <name>( <params> ) -> <type> {
 ```
 
 Constraints: pipeline names unique, at least one reachable `return`.
+
+## `workflow` declaration
+
+```
+workflow <name>( <params> ) -> <type> {
+  <workflow-steps>
+}
+```
+
+`workflow` is the high-level authoring surface. It compiles to an ordinary `pipeline` before type-checking and execution. Use `python main.py <file> <name> --lower` to inspect the lowered pipeline IR.
+
+Constraints: workflow names unique, at least one `return`, and workflow names may not collide with pipeline names.
+
+## Workflow steps
+
+### Stage step
+
+```
+stage <artifact> = <agent> does <task>( <expr>, ... );
+```
+
+Arguments are positional and must match the task's declared parameter order.
+
+### Review step
+
+```
+review <artifact> = <reviewer> checks <source>
+  revise with <reviser> using <task>
+  max_rounds <N>;
+```
+
+This is a declarative review loop:
+
+- The workflow compiler infers the review task name as `review_<artifact>`.
+- The inferred review task is expected to return an object with at least `approved: Bool` and `feedback: String`.
+- The revise task must return the same object type as `<source>`.
+- The source artifact is consumed by the review step and replaced by the final reviewed artifact name.
+- `max_rounds` sets the revision budget; looping is handled internally in the lowered pipeline.
+
+### Workflow return
+
+```
+return <expr> ;
+```
+
+Workflow return expressions use the same expression grammar as pipelines.
 
 ## Statements
 

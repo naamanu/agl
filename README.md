@@ -86,7 +86,7 @@ agentlang/
   runtime.py    -- pipeline executor
   stdlib.py     -- built-in task handlers
   adapters/     -- OpenAI + tool adapters
-examples/       -- five runnable .agent programs
+examples/       -- six runnable .agent programs
 docs/           -- full documentation (MkDocs)
 main.py         -- CLI entrypoint
 ```

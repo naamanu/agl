@@ -1,6 +1,6 @@
 # Examples
 
-AgentLang ships with five `.agent` examples in `examples/`. Each one exercises a distinct set of language features.
+AgentLang ships with six `.agent` examples in `examples/`. Each one exercises a distinct set of language features.
 
 ---
 
@@ -219,6 +219,55 @@ python main.py examples/live_answer.agent answer \
   --adapter live \
   --input '{"question":"What is an agentic workflow?"}'
 ```
+
+---
+
+## `complete_agent.agent` — fuller multi-agent workflow
+
+**Features:** tool-enabled research agent, parallel research, downstream comparison, direct LLM prompt, final drafting step
+
+```agentlang
+agent scout {
+  model: "gpt-4.1"
+  , tools: [web_search]
+}
+
+agent analyst {
+  model: "gpt-4.1-mini"
+  , tools: []
+}
+
+agent writer {
+  model: "gpt-4.1-mini"
+  , tools: []
+}
+
+task research(topic: String) -> Obj{notes: String} {}
+task compare(note_a: String, note_b: String) -> Obj{decision: String} {}
+task llm_complete(prompt: String) -> Obj{text: String} {}
+task draft(notes: String) -> Obj{article: String} {}
+
+pipeline executive_brief(product: String, competitor_a: String, competitor_b: String) -> String {
+  parallel {
+    let a = run research with { topic: competitor_a + " strategy for " + product } by scout;
+    let b = run research with { topic: competitor_b + " strategy for " + product } by scout;
+  } join;
+
+  let c = run compare with { note_a: a.notes, note_b: b.notes } by analyst;
+  let o = run llm_complete with { prompt: "Write a concise executive brief outline for " + product + ".\nDecision context:\n" + c.decision } by analyst;
+  let d = run draft with { notes: "Executive outline:\n" + o.text + "\n\nResearch A:\n" + a.notes + "\n\nResearch B:\n" + b.notes } by writer;
+  return d.article;
+}
+```
+
+Mock mode:
+
+```bash
+python main.py examples/complete_agent.agent executive_brief \
+  --input '{"product":"team chat","competitor_a":"Slack","competitor_b":"Microsoft Teams"}'
+```
+
+This example is the closest thing in-tree to a "complete agent" workflow: a tool-enabled scout gathers context, an analyst synthesizes a decision, and a writer turns that into a final artifact.
 
 ---
 

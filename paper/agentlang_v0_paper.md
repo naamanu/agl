@@ -17,7 +17,7 @@ AgentLang v0 is designed around three constraints.
 2. Strong enough to catch common orchestration errors before runtime.
 3. Practical enough to execute real mock/live task handlers from a CLI.
 
-The project currently ships as a self-contained Python 3.14+ implementation with five example programs, a formal semantics, and an interactive REPL.
+The project currently ships as a self-contained Python 3.14+ implementation with six example programs, a formal semantics, and an interactive REPL.
 
 ## 2. Language Overview
 

@@ -1,6 +1,6 @@
 # Examples
 
-AgentLang ships with fourteen `.agent` examples in `examples/`. Each one exercises a distinct set of language features.
+AgentLang ships with fifteen `.agent` examples in `examples/`. Each one exercises a distinct set of language features.
 
 ---
 
@@ -491,6 +491,70 @@ python main.py examples/incident_runbook.agent respond_to_incident \
 python main.py examples/incident_runbook.agent respond_to_incident \
   --lower
 ```
+
+---
+
+## `launch_dossier.agent` — full multi-agent workflow
+
+**Features:** `workflow`, multiple agents, tool-backed research, review/revise loop, strategic synthesis, editing, publishing
+
+```agentlang
+tool web_search(query: String) -> List[Obj{title: String, url: String, snippet: String}] {}
+tool fetch_url(url: String) -> Obj{content: String} {}
+
+agent researcher {
+  model: "gpt-4.1"
+  , tools: [web_search, fetch_url]
+}
+
+agent reviewer {
+  model: "gpt-4.1-mini"
+  , tools: [web_search]
+}
+
+agent strategist {
+  model: "gpt-4.1-mini"
+  , tools: []
+}
+
+agent editor {
+  model: "gpt-4.1-mini"
+  , tools: []
+}
+
+agent publisher {
+  model: "gpt-4.1-mini"
+  , tools: []
+}
+
+task draft_market_scan(product: String, audience: String) -> Obj{scan: String, sources: List[String]} by agent {}
+task review_approved_scan(product: String, audience: String, scan: String, sources: List[String]) -> Obj{approved: Bool, feedback: String} by agent {}
+task revise_market_scan(product: String, audience: String, scan: String, sources: List[String], feedback: String) -> Obj{scan: String, sources: List[String]} by agent {}
+task build_positioning(product: String, audience: String, scan: String) -> Obj{positioning: String} by agent {}
+task draft_launch_plan(product: String, audience: String, positioning: String) -> Obj{plan: String} by agent {}
+task edit_launch_plan(product: String, plan: String) -> Obj{title: String, plan: String} by agent {}
+task publish_launch_dossier(product: String, audience: String, title: String, plan: String) -> Obj{dossier: String} by agent {}
+
+workflow launch_dossier(product: String, audience: String) -> String {
+  stage market_scan = researcher does draft_market_scan(product, audience);
+  review approved_scan = reviewer checks market_scan revise with researcher using revise_market_scan max_rounds 2;
+  stage positioning = strategist does build_positioning(product, audience, approved_scan.scan);
+  stage launch_plan = strategist does draft_launch_plan(product, audience, positioning.positioning);
+  stage edited = editor does edit_launch_plan(product, launch_plan.plan);
+  stage published = publisher does publish_launch_dossier(product, audience, edited.title, edited.plan);
+  return published.dossier;
+}
+```
+
+```bash
+python main.py examples/launch_dossier.agent launch_dossier \
+  --input '{"product":"AI support copilot","audience":"IT operations teams"}'
+
+python main.py examples/launch_dossier.agent launch_dossier \
+  --lower
+```
+
+This is the most complete high-level example in-tree: a researcher gathers and revises market context, a strategist turns that into positioning and a launch plan, then an editor and publisher finalize the dossier.
 
 ---
 

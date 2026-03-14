@@ -1,6 +1,6 @@
 # Examples
 
-AgentLang ships with fifteen `.agent` examples in `examples/`. Each one exercises a distinct set of language features.
+AgentLang ships with seventeen `.agent` examples in `examples/`. Each one exercises a distinct set of language features.
 
 ---
 
@@ -615,6 +615,84 @@ python main.py examples/break_continue.agent skip_once \
 {
   "result": 0
 }
+```
+
+---
+
+## `showcase_all_features.agent` — comprehensive feature showcase
+
+**Features:** type aliases, enums, shorthand syntax, `max_concurrency`, try/catch, pipeline-calls-pipeline, assert, test blocks, plugin support, observability
+
+This example exercises every new AgentLang construct in a content production system that researches a topic, drafts in parallel across two angles, merges drafts, runs a quality review loop, and produces a final deliverable.
+
+```agentlang
+-- type aliases and enums
+enum ContentTone { formal, conversational, technical };
+type ResearchNotes = Obj{notes: String, sources: List[String]};
+type DraftResult = Obj{article: String, word_count: Number};
+
+-- agent with optional model
+agent writer { tools: [] }
+
+-- sub-pipeline (pipeline-calls-pipeline)
+pipeline research_and_draft(topic: String, angle: String) -> DraftResult {
+  let notes = run research with { topic: topic + " — " + angle } by researcher retries 1 timeout 30;
+  let article = draft(notes.notes) by writer;  -- shorthand syntax
+  return article;
+}
+
+-- main pipeline with max_concurrency, try/catch, assert
+pipeline produce(topic: String) -> String {
+  parallel max_concurrency 2 {
+    let angle_a = run research_and_draft with { topic: topic, angle: "technical deep-dive" };
+    let angle_b = run research_and_draft with { topic: topic, angle: "practical applications" };
+  } join;
+
+  try {
+    let enrichment = run risky_enrich with { topic: topic };
+  } catch err {
+    let fallback = run fallback_enrich with { query: err };
+  }
+
+  assert final.title != "", "Title must not be empty";
+  return final.article;
+}
+
+-- in-language tests
+test "merge_drafts combines two drafts" {
+  let result = run merge_drafts with { draft_a: "A.", draft_b: "B.", word_count_a: 100, word_count_b: 200 };
+  assert result.total_words == 300, "Total words should be sum of both";
+}
+```
+
+```bash
+# Run the pipeline with plugin
+python main.py examples/showcase_all_features.agent produce \
+  --input '{"topic":"AI safety"}' \
+  --plugin examples/showcase_plugin.py
+
+# Run tests
+python main.py examples/showcase_all_features.agent --test \
+  --plugin examples/showcase_plugin.py
+
+# With execution trace
+python main.py examples/showcase_all_features.agent produce \
+  --input '{"topic":"AI safety"}' \
+  --plugin examples/showcase_plugin.py \
+  --output-trace trace.json
+```
+
+---
+
+## `tax_advisory.agent` — complex multi-agent tax advisory
+
+**Features:** enums (`FilingStatus`), type aliases (`TaxProfile`, `RulesSummary`, `Strategy`, `ReviewVerdict`), parallel with `max_concurrency`, retry with fallback, `timeout`, multi-agent review loop
+
+A taxpayer submits financial details and the system produces a personalised tax-optimisation report through classification, parallel research, strategy building, compliance review, and formatting.
+
+```bash
+python main.py examples/tax_advisory.agent tax_optimisation_report \
+  --input '{"filing_status":"single","income":120000,"state":"California","has_business":true}'
 ```
 
 ---

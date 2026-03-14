@@ -1,6 +1,6 @@
 # Adapters
 
-Adapters determine how task handlers are executed. AgentLang ships with two: `mock` for deterministic local development, and `live` for real LLM calls via OpenAI.
+Adapters determine how task handlers are executed. AgentLang ships with two: `mock` for deterministic local development, and `live` for real LLM calls via OpenAI plus typed tool calling.
 
 ## Mock adapter (default)
 
@@ -25,7 +25,7 @@ python main.py examples/blog.agent blog_post \
 
 ## Live adapter
 
-Live mode routes LLM-backed tasks to the OpenAI Responses API and activates tool integrations.
+Live mode routes LLM-backed tasks to the OpenAI Responses API and activates typed tool integrations.
 
 ```bash
 export OPENAI_API_KEY="sk-..."
@@ -47,12 +47,13 @@ python main.py examples/blog.agent blog_post \
 | `extract_intent` | Fixed deterministic output | Fixed deterministic output |
 | `route` | Fixed deterministic output | Fixed deterministic output |
 | `flaky_fetch` | Fails N times then succeeds | Fails N times then succeeds |
+| `task ... by agent {}` | Deterministic placeholder object | OpenAI call with schema-constrained JSON output |
 
 `extract_intent`, `route`, and `flaky_fetch` behave identically in both modes.
 
 ## Web search tool
 
-When an agent declares `tools: [web_search]`, the `research` task in live mode exposes that declared tool to the model through the runtime tool registry. The model can then call `web_search` during task execution.
+When an agent declares `tools: [web_search]`, live model tasks expose that declared tool through the runtime tool registry. The model can call `web_search` during task execution.
 
 ```agentlang
 tool web_search(query: String) -> List[Obj{title: String, url: String, snippet: String}] {}
@@ -79,6 +80,42 @@ tool fetch_url(url: String) -> Obj{content: String} {}
 
 In mock mode, `fetch_url` returns a deterministic placeholder string instead of performing a network request.
 
+## Agent tasks and tool calling
+
+Agent tasks are declared with `by agent`:
+
+```agentlang
+task investigate(topic: String) -> Obj{summary: String, sources: List[String]} by agent {}
+```
+
+In live mode, the runtime:
+
+1. Selects the model from the bound `agent`
+2. Exposes the agent's declared tools to the model
+3. Executes tool calls through the runtime tool registry
+4. Requires the final model output to decode as JSON matching the declared return type
+
+This keeps orchestration in the DSL while provider-specific tool mechanics stay in the adapter/runtime layer.
+
+## Live tracing
+
+Use `--trace-live` or `AGENTLANG_TRACE_LIVE=1` to print live execution trace lines to `stderr`.
+
+```bash
+python main.py examples/incident_runbook.agent respond_to_incident \
+  --adapter live \
+  --trace-live \
+  --input '{"incident":"database failover drill"}'
+```
+
+Example trace lines:
+
+```text
+[trace] task=draft_response_plan agent=researcher model=gpt-4.1 start args={"incident":"database failover drill"}
+[trace] task=review_response_plan agent=reviewer tool=web_search call args={"query":"best practices for database failover drills site:aws.amazon.com"}
+[trace] task=publish_runbook agent=commander model=gpt-4.1-mini result={"runbook":"Runbook for Database Failover Drill: ..."}
+```
+
 ## Model resolution
 
 The model used for a task is determined by:
@@ -96,6 +133,7 @@ The model used for a task is determined by:
 | `AGENTLANG_DEFAULT_MODEL` | — | Fallback model when no `by` binding |
 | `AGENTLANG_WEB_RESULTS` | `5` | DuckDuckGo results for `research` in live mode |
 | `AGENTLANG_HTTP_TIMEOUT_S` | `20` | Timeout in seconds for HTTP calls |
+| `AGENTLANG_TRACE_LIVE` | `0` | Enable live tracing without passing `--trace-live` |
 
 ## Error handling
 
@@ -105,6 +143,7 @@ Adapter errors are caught and surfaced as runtime failures:
 Execution error: OPENAI_API_KEY is required when adapter mode is 'live'.
 Execution error: LLM call failed: <http error>
 Execution error: <adapter timeout message>
+Execution error: Task 'draft_response_plan' by agent 'researcher' failed after 1 attempts. Last error: RuntimeError: LLM call failed: ...
 ```
 
 The `--adapter live` flag enables the live adapter for a single run without setting `AGENTLANG_ADAPTER` permanently.

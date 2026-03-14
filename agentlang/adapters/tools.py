@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from html import unescape
 from urllib import error, parse, request
 
 
@@ -15,20 +16,24 @@ def duckduckgo_search(
     max_results: int = 5,
     timeout_s: float = 15.0,
 ) -> list[dict[str, str]]:
-    params = parse.urlencode(
-        {
-            "q": query,
-            "format": "json",
-            "no_redirect": "1",
-            "no_html": "1",
-        }
-    )
-    url = f"https://api.duckduckgo.com/?{params}"
+    """Search DuckDuckGo via its HTML results page.
 
-    req = request.Request(url=url, method="GET")
+    The Instant Answer JSON API returns empty results for most queries.
+    Scraping the lite HTML page gives real organic search results.
+    """
+    params = parse.urlencode({"q": query})
+    url = f"https://html.duckduckgo.com/html/?{params}"
+
+    req = request.Request(
+        url=url,
+        method="GET",
+        headers={
+            "User-Agent": "Mozilla/5.0 (compatible; AgentLang/0.1)",
+        },
+    )
     try:
         with request.urlopen(req, timeout=timeout_s) as resp:
-            payload = json.loads(resp.read().decode("utf-8"))
+            html = resp.read().decode("utf-8", errors="replace")
     except error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
         raise ToolAdapterError(f"DuckDuckGo HTTP {exc.code}: {detail}") from exc
@@ -36,36 +41,55 @@ def duckduckgo_search(
         raise ToolAdapterError(f"DuckDuckGo network error: {exc.reason}") from exc
     except TimeoutError as exc:
         raise ToolAdapterError("DuckDuckGo request timed out.") from exc
-    except json.JSONDecodeError as exc:
-        raise ToolAdapterError("DuckDuckGo response was not valid JSON.") from exc
 
+    return _parse_ddg_html(html, max_results)
+
+
+def _parse_ddg_html(html: str, max_results: int) -> list[dict[str, str]]:
+    """Extract search results from DuckDuckGo lite HTML."""
     results: list[dict[str, str]] = []
-    abstract_text = payload.get("AbstractText")
-    abstract_url = payload.get("AbstractURL")
-    if isinstance(abstract_text, str) and abstract_text.strip():
-        results.append(
-            {
-                "title": payload.get("Heading") or "Abstract",
-                "url": abstract_url or "",
-                "snippet": abstract_text.strip(),
-            }
-        )
 
-    for topic in _flatten_related(payload.get("RelatedTopics", [])):
+    # Match <a ... class="result__a" ... href="..." ...>title</a>
+    # Attributes can appear in any order.
+    link_pattern = re.compile(
+        r'<a[^>]*class="result__a"[^>]*href="([^"]*)"[^>]*>(.*?)</a>',
+        re.DOTALL,
+    )
+    # Also try href before class
+    link_pattern_alt = re.compile(
+        r'<a[^>]*href="([^"]*)"[^>]*class="result__a"[^>]*>(.*?)</a>',
+        re.DOTALL,
+    )
+    snippet_pattern = re.compile(
+        r'<a[^>]*class="result__snippet"[^>]*>(.*?)</a>',
+        re.DOTALL,
+    )
+
+    links = link_pattern.findall(html) or link_pattern_alt.findall(html)
+    snippets = snippet_pattern.findall(html)
+
+    for i, (raw_url, raw_title) in enumerate(links):
         if len(results) >= max_results:
             break
-        text = topic.get("Text")
-        first_url = topic.get("FirstURL")
-        if isinstance(text, str) and text.strip():
-            results.append(
-                {
-                    "title": _title_from_text(text),
-                    "url": first_url if isinstance(first_url, str) else "",
-                    "snippet": text.strip(),
-                }
-            )
+        title = _strip_tags(unescape(raw_title)).strip()
+        url = _extract_url(raw_url)
+        snippet = ""
+        if i < len(snippets):
+            snippet = _strip_tags(unescape(snippets[i])).strip()
+        if not title and not snippet:
+            continue
+        results.append({"title": title or "Untitled", "url": url, "snippet": snippet})
 
-    return results[:max_results]
+    return results
+
+
+def _extract_url(raw: str) -> str:
+    """DuckDuckGo wraps links in a redirect; extract the actual URL."""
+    if "uddg=" in raw:
+        match = re.search(r"uddg=([^&]+)", raw)
+        if match:
+            return parse.unquote(match.group(1))
+    return raw
 
 
 def format_search_hits(hits: list[dict[str, str]]) -> str:
@@ -103,31 +127,10 @@ def fetch_url_text(
         raise ToolAdapterError("fetch_url request timed out.") from exc
 
     text = raw.decode("utf-8", errors="replace")
-    return _extract_visible_text(text)
+    return _strip_tags(text)
 
 
-def _flatten_related(items: object) -> list[dict[str, object]]:
-    if not isinstance(items, list):
-        return []
-    out: list[dict[str, object]] = []
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        nested = item.get("Topics")
-        if isinstance(nested, list):
-            out.extend(_flatten_related(nested))
-            continue
-        out.append(item)
-    return out
-
-
-def _title_from_text(text: str) -> str:
-    if " - " in text:
-        return text.split(" - ", 1)[0].strip()
-    return text[:80].strip()
-
-
-def _extract_visible_text(text: str) -> str:
+def _strip_tags(text: str) -> str:
     text = re.sub(r"(?is)<script.*?>.*?</script>", " ", text)
     text = re.sub(r"(?is)<style.*?>.*?</style>", " ", text)
     text = re.sub(r"(?s)<[^>]+>", " ", text)

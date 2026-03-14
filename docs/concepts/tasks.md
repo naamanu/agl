@@ -37,7 +37,7 @@ This separation between signature and behavior is intentional:
 
 - The DSL stays simple and statically checkable.
 - Behavior can be swapped between `mock` and `live` adapters without changing the `.agent` source.
-- Deterministic tasks and agent-executed tasks can share the same pipeline language.
+- Deterministic tasks and agent-executed tasks can share the same workflow and pipeline language.
 
 ## Built-in task handlers
 
@@ -68,6 +68,7 @@ task investigate(topic: String) -> Obj{summary: String, sources: List[String]} b
 - They may use the bound agent's declared tools in live mode.
 - They must still return values that match the declared DSL return type.
 - In mock mode, AgentLang returns deterministic placeholder values that satisfy the declared type.
+- In live mode, the final model output is decoded as JSON and validated against the task's declared return type.
 
 ## Adding a new task
 
@@ -77,4 +78,4 @@ task investigate(topic: String) -> Obj{summary: String, sources: List[String]} b
 
 See [Contributing → Adding a Task](../contributing.md#adding-a-new-task) for the full checklist.
 
-## Next: [Pipelines](pipelines.md)
+## Next: [Workflows](workflows.md)

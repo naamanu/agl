@@ -1,0 +1,220 @@
+-- showcase_all_features.agent
+--
+-- A complete example exercising every new AgentLang construct:
+--   1. Type aliases          (type ... = ...;)
+--   2. Enum types            (enum ... { ... };)
+--   3. Shorthand syntax      (let r = task(args) by agent;)
+--   4. max_concurrency       (parallel max_concurrency N { ... } join;)
+--   5. Try/catch             (try { ... } catch err { ... })
+--   6. Pipeline-calls-pipeline (run sub_pipeline with {...};)
+--   7. Assert + test blocks  (assert ...; / test "..." { ... })
+--   8. Observability via --output-trace (run with CLI flag)
+--   9. Plugin support        (run with --plugin flag)
+--
+-- Scenario: A content production system that researches a topic,
+-- drafts an article in parallel across two angles, merges drafts,
+-- runs a quality review loop, and produces a final deliverable.
+--
+-- Run:
+--   python main.py examples/showcase_all_features.agent produce '{"topic":"AI safety"}'
+--   python main.py examples/showcase_all_features.agent produce '{"topic":"AI safety"}' --output-trace trace.json
+--   python main.py examples/showcase_all_features.agent --test
+
+-- ── tools ──────────────────────────────────────────────────────────
+
+tool web_search(query: String) -> List[Obj{title: String, url: String, snippet: String}] {}
+tool fetch_url(url: String) -> Obj{content: String} {}
+
+-- ── enums ──────────────────────────────────────────────────────────
+
+enum ContentTone { formal, conversational, technical };
+enum ReviewOutcome { approved, needs_revision, rejected };
+
+-- ── type aliases ───────────────────────────────────────────────────
+
+type ResearchNotes = Obj{notes: String, sources: List[String]};
+type DraftResult = Obj{article: String, word_count: Number};
+type MergedDraft = Obj{article: String, sections: List[String], total_words: Number};
+type ReviewVerdict = Obj{approved: Bool, feedback: String};
+type FinalDeliverable = Obj{title: String, article: String, sources: List[String]};
+
+-- ── agents ─────────────────────────────────────────────────────────
+-- Note: model is optional — the mock adapter uses a default.
+
+agent researcher {
+  model: "gpt-4.1"
+  , tools: [web_search, fetch_url]
+}
+
+agent writer {
+  tools: []
+}
+
+agent reviewer {
+  model: "gpt-4.1-mini"
+  , tools: []
+}
+
+agent editor {
+  tools: []
+}
+
+-- ── tasks ──────────────────────────────────────────────────────────
+
+task research(topic: String) -> ResearchNotes by agent {}
+
+task draft(notes: String) -> DraftResult by agent {}
+
+task merge_drafts(
+  draft_a: String,
+  draft_b: String,
+  word_count_a: Number,
+  word_count_b: Number
+) -> MergedDraft {}
+
+task review_article(
+  article: String,
+  tone: ContentTone,
+  sections: List[String]
+) -> ReviewVerdict by agent {}
+
+task revise_article(
+  article: String,
+  feedback: String,
+  tone: ContentTone
+) -> DraftResult by agent {}
+
+task format_final(
+  title: String,
+  article: String,
+  sources: List[String],
+  tone: ContentTone
+) -> FinalDeliverable by agent {}
+
+task risky_enrich(topic: String) -> Obj{extra: String} {}
+
+task fallback_enrich(query: String) -> Obj{extra: String} {}
+
+-- countdown is used internally by the review loop
+task countdown(current: Number) -> Obj{next: Number, done: Bool} {}
+
+-- ── sub-pipeline (pipeline-calls-pipeline) ─────────────────────────
+
+pipeline research_and_draft(topic: String, angle: String) -> DraftResult {
+  let notes = run research with { topic: topic + " — " + angle } by researcher retries 1 timeout 30;
+  -- shorthand syntax: positional args matched to task params
+  let article = draft(notes.notes) by writer;
+  return article;
+}
+
+-- ── main pipeline ──────────────────────────────────────────────────
+
+pipeline produce(topic: String) -> String {
+
+  -- 1. Parallel research+draft on two angles, throttled to 2 at a time
+  parallel max_concurrency 2 {
+    let angle_a = run research_and_draft with { topic: topic, angle: "technical deep-dive" };
+    let angle_b = run research_and_draft with { topic: topic, angle: "practical applications" };
+  } join;
+
+  -- 2. Merge drafts
+  let merged = run merge_drafts with {
+    draft_a: angle_a.article,
+    draft_b: angle_b.article,
+    word_count_a: angle_a.word_count,
+    word_count_b: angle_b.word_count
+  };
+
+  -- 3. Try/catch: attempt an enrichment step that might fail
+  try {
+    let enrichment = run risky_enrich with { topic: topic };
+    -- merge extra content into the article
+    let merged = run merge_drafts with {
+      draft_a: merged.article,
+      draft_b: enrichment.extra,
+      word_count_a: merged.total_words,
+      word_count_b: 100
+    };
+  } catch err {
+    -- gracefully degrade: use fallback enrichment
+    let fallback = run fallback_enrich with { query: err };
+    let merged = run merge_drafts with {
+      draft_a: merged.article,
+      draft_b: fallback.extra,
+      word_count_a: merged.total_words,
+      word_count_b: 50
+    };
+  }
+
+  -- 4. Quality review loop with revision
+  let verdict = run review_article with {
+    article: merged.article,
+    tone: "formal",
+    sections: merged.sections
+  } by reviewer;
+
+  while verdict.approved == false {
+    let revised = run revise_article with {
+      article: merged.article,
+      feedback: verdict.feedback,
+      tone: "formal"
+    } by writer;
+
+    let merged = run merge_drafts with {
+      draft_a: revised.article,
+      draft_b: "",
+      word_count_a: revised.word_count,
+      word_count_b: 0
+    };
+
+    let verdict = run review_article with {
+      article: merged.article,
+      tone: "formal",
+      sections: merged.sections
+    } by reviewer;
+  }
+
+  -- 5. Format final deliverable
+  let final = run format_final with {
+    title: topic + " — Comprehensive Guide",
+    article: merged.article,
+    sources: merged.sections,
+    tone: "formal"
+  } by editor;
+
+  -- 6. Assert quality gate
+  assert final.title != "", "Title must not be empty";
+  assert final.article != "", "Article must not be empty";
+
+  return final.article;
+}
+
+-- ── in-language tests ──────────────────────────────────────────────
+
+test "merge_drafts combines two drafts" {
+  let result = run merge_drafts with {
+    draft_a: "Part A.",
+    draft_b: "Part B.",
+    word_count_a: 100,
+    word_count_b: 200
+  };
+  assert result.total_words == 300, "Total words should be sum of both";
+  assert result.article != "", "Merged article should not be empty";
+}
+
+test "fallback_enrich produces content" {
+  let result = run fallback_enrich with { query: "test query" };
+  assert result.extra != "", "Fallback should produce non-empty extra content";
+}
+
+test "countdown reaches done" {
+  let state = run countdown with { current: 3 };
+  assert state.next == 2, "3 -> next should be 2";
+  assert state.done == false, "Should not be done at next=2";
+  let state = run countdown with { current: state.next };
+  assert state.next == 1, "2 -> next should be 1";
+  assert state.done == false, "Should not be done at next=1";
+  let state = run countdown with { current: state.next };
+  assert state.next == 0, "1 -> next should be 0";
+  assert state.done == true, "Should be done when next=0";
+}

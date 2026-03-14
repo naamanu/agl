@@ -25,7 +25,14 @@ This guide explains how to extend AgentLang — adding language features, new ta
       --input '{"topic":"api-status","fail_count":5}'
     ```
 
-5. If you changed DSL or runtime semantics, update the relevant docs (see below).
+5. Run the test suite:
+
+    ```bash
+    python main.py examples/showcase_all_features.agent --test \
+      --plugin examples/showcase_plugin.py
+    ```
+
+6. If you changed DSL or runtime semantics, update the relevant docs (see below).
 
 ## Project layout
 
@@ -37,6 +44,8 @@ agentlang/
   checker.py      -- static type checker
   runtime.py      -- pipeline executor
   stdlib.py       -- built-in task handlers + task registry
+  context.py      -- ExecutionContext + observability
+  plugins.py      -- PluginRegistry for extensibility
   adapters/
     openai.py     -- OpenAI Responses API client
     tools.py      -- web search and other tool adapters
@@ -111,5 +120,6 @@ Before opening a PR:
 - [ ] `py_compile` passes on all core modules
 - [ ] At least one happy-path example runs correctly
 - [ ] At least one failure-path example runs correctly (if relevant)
+- [ ] `--test` passes on `showcase_all_features.agent` (with plugin)
 - [ ] Docs updated for any DSL/runtime/adapter changes
 - [ ] No secrets in source, examples, or docs

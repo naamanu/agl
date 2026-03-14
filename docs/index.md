@@ -12,13 +12,19 @@ agent planner {
   , tools: [web_search]
 }
 
-task research(topic: String) -> Obj{notes: String} {}
-task draft(notes: String)    -> Obj{article: String} {}
+agent reviewer {
+  model: "gpt-4.1-mini"
+  , tools: [web_search]
+}
 
-pipeline blog_post(topic: String) -> String {
-  let r = run research with { topic: topic } by planner;
-  let d = run draft    with { notes: r.notes } by planner;
-  return d.article;
+task plan_blog(topic: String) -> Obj{outline: String, sources: List[String]} by agent {}
+task review_outline(topic: String, outline: String, sources: List[String]) -> Obj{approved: Bool, feedback: String} by agent {}
+task revise_outline(topic: String, outline: String, sources: List[String], feedback: String) -> Obj{outline: String, sources: List[String]} by agent {}
+
+workflow publish_topic_blog(topic: String) -> String {
+  stage plan = planner does plan_blog(topic);
+  review outline = reviewer checks plan revise with planner using revise_outline max_rounds 2;
+  return outline.outline;
 }
 ```
 
@@ -40,9 +46,11 @@ Most "agent frameworks" hide the execution model behind layers of abstraction. A
 |---|---|
 | External dependencies | None (core) |
 | Type checking | Static, structural |
-| Parallel execution | Built-in `parallel { } join` |
-| Retry / fallback | First-class syntax |
-| LLM backend | Optional (`--adapter live`) |
+  | High-level authoring | `workflow`, `stage`, `review` |
+  | Parallel execution | Built-in `parallel { } join` |
+  | Looping | `while`, `break`, `continue` |
+  | Retry / fallback | First-class syntax |
+  | LLM backend | Optional (`--adapter live`) |
 
 ---
 
@@ -54,7 +62,7 @@ Most "agent frameworks" hide the execution model behind layers of abstraction. A
 
     ---
 
-    Follow the tutorial to run your first pipeline in under five minutes.
+    Follow the tutorial to run your first pipeline or workflow in under five minutes.
 
     [:octicons-arrow-right-24: Quick Start](tutorial/quickstart.md)
 
@@ -62,7 +70,7 @@ Most "agent frameworks" hide the execution model behind layers of abstraction. A
 
     ---
 
-    Understand agents, tasks, pipelines, the type system, and parallel execution.
+    Understand agents, tasks, workflows, pipelines, the type system, and parallel execution.
 
     [:octicons-arrow-right-24: Concepts](concepts/agents.md)
 

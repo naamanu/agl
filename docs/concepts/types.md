@@ -80,6 +80,44 @@ TypeError: return expression has type Number, pipeline declares String
 TypeError: on_fail fallback type Obj{article: String} does not match task return Obj{data: String}
 ```
 
+## Type aliases
+
+A type alias gives a name to a type expression. Aliases are resolved at parse time — the alias name can be used anywhere a type is expected.
+
+```agentlang
+type ResearchNotes = Obj{notes: String, sources: List[String]};
+type DraftResult = Obj{article: String, word_count: Number};
+```
+
+Use aliases to avoid repeating complex object types across multiple task signatures:
+
+```agentlang
+task research(topic: String) -> ResearchNotes by agent {}
+task draft(notes: String) -> DraftResult by agent {}
+```
+
+Alias names must be unique. Aliases cannot be recursive.
+
+## Enum types
+
+An enum declares a closed set of string variants:
+
+```agentlang
+enum ContentTone { formal, conversational, technical };
+enum FilingStatus { single, married_joint, married_separate, head_of_household };
+```
+
+Enum values are assignable to `String` parameters. At runtime, values are validated to be one of the declared variants.
+
+```agentlang
+task review_article(article: String, tone: ContentTone) -> ReviewVerdict by agent {}
+
+-- in a pipeline, pass enum values as string literals:
+let v = run review_article with { article: merged.article, tone: "formal" } by reviewer;
+```
+
+Enum names must be unique. Variant names must be unique within an enum.
+
 ## Runtime input type checking
 
 At runtime, the `--input` JSON is also validated against declared pipeline param types before execution begins:

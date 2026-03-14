@@ -118,3 +118,5 @@ if f.data == "fallback for " + topic {
 ```
 
 This is a common pattern — compute a sentinel fallback value and check for it downstream.
+
+## Next: [Error Handling](error-handling.md)

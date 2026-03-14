@@ -4,11 +4,11 @@ This page gives a precise mathematical account of AgentLang v0: abstract syntax,
 
 ## 1. Abstract Syntax
 
-A program is a quadruple of agent definitions, tool signatures, task signatures, and pipeline definitions:
+A program is a tuple of agent definitions, tool signatures, task signatures, pipeline definitions, type aliases, enum definitions, and test blocks:
 
-$$P ::= \langle A, U, T, W \rangle$$
+$$P ::= \langle A, U, T, W, \mathcal{Y}, \mathcal{N}, \mathcal{B} \rangle$$
 
-where \(A\) is the set of agent definitions, \(U\) the set of tool signatures, \(T\) the set of task signatures, and \(W\) the set of pipeline definitions.
+where \(A\) is the set of agent definitions, \(U\) the set of tool signatures, \(T\) the set of task signatures, \(W\) the set of pipeline definitions, \(\mathcal{Y}\) the set of type alias definitions, \(\mathcal{N}\) the set of enum definitions, and \(\mathcal{B}\) the set of test blocks.
 
 A tool signature declares typed inputs and a typed output for runtime-executable tools:
 
@@ -27,16 +27,24 @@ $$t^{agent} : (x_1{:}\tau_1,\ \dots,\ x_n{:}\tau_n) \to \tau_o$$
 $$\begin{align*}
 s\ ::=\ & \texttt{let}\ x = \texttt{run}\ t\ \texttt{with}\ \{k_i{:}e_i\}\ [\texttt{by}\ a]\ [\texttt{retries}\ n]\ [\texttt{on\_fail abort}] \\
   \mid\ & \texttt{let}\ x = \texttt{run}\ t\ \texttt{with}\ \{k_i{:}e_i\}\ [\texttt{by}\ a]\ [\texttt{retries}\ n]\ \texttt{on\_fail use}\ e_f \\
-  \mid\ & \texttt{parallel}\ \{r_1;\dots;r_m\}\ \texttt{join} \\
+  \mid\ & \texttt{parallel}\ [\texttt{max\_concurrency}\ n]\ \{r_1;\dots;r_m\}\ \texttt{join} \\
   \mid\ & \texttt{if}\ e\ \{s^*\}\ [\texttt{else}\ \{s^*\}] \\
   \mid\ & \texttt{while}\ e\ \{s^*\} \\
   \mid\ & \texttt{break} \\
   \mid\ & \texttt{continue} \\
   \mid\ & \texttt{if let}\ x = e\ \{s^*\}\ [\texttt{else}\ \{s^*\}] \\
+  \mid\ & \texttt{try}\ \{s^*\}\ \texttt{catch}\ x\ \{s^*\} \\
+  \mid\ & \texttt{assert}\ e,\ c \\
   \mid\ & \texttt{return}\ e
 \end{align*}$$
 
 Each \(r_i\) inside a `parallel` block is restricted to the run statement form (`let x = run ...`). General statements (`if`, `return`, nested `parallel`) are not permitted inside `parallel`.
+
+**Test block form:**
+
+$$b\ ::=\ \texttt{test}\ c\ \{s^*\}$$
+
+Test blocks are top-level declarations that run only under `--test`. Each has its own scope.
 
 **Expression forms:**
 
@@ -49,7 +57,9 @@ e\ ::=\ & c \mid \texttt{null} \mid x.f_1{\cdots}f_n \mid (e) \mid \{k_i{:}e_i\}
 
 **Types:**
 
-$$\tau\ ::=\ \texttt{String} \mid \texttt{Number} \mid \texttt{Bool} \mid \texttt{List}[\tau] \mid \texttt{Option}[\tau] \mid \texttt{Obj}\{f_i{:}\tau_i\}$$
+$$\tau\ ::=\ \texttt{String} \mid \texttt{Number} \mid \texttt{Bool} \mid \texttt{List}[\tau] \mid \texttt{Option}[\tau] \mid \texttt{Obj}\{f_i{:}\tau_i\} \mid \texttt{Enum}[n]$$
+
+where \(\texttt{Enum}[n]\) denotes an enum type with \(n\) declared variants. Enum values are assignable to \(\texttt{String}\). Type aliases are resolved at parse time and do not appear in the type grammar.
 
 ---
 
@@ -157,6 +167,59 @@ The loop condition must have type `Bool`. The post-loop environment is conservat
 
 `break` and `continue` are only well-typed inside loop bodies.
 
+### Try/catch typing
+
+$$\dfrac{
+  \Gamma \vdash s_{try}^*\ \dashv \Gamma_{try} \qquad
+  \Gamma[x_{err} \mapsto \texttt{String}] \vdash s_{catch}^*\ \dashv \Gamma_{catch}
+}{
+  \Gamma \vdash \texttt{try}\ \{s_{try}^*\}\ \texttt{catch}\ x_{err}\ \{s_{catch}^*\}\ \dashv\ \Gamma \sqcap (\Gamma_{try},\ \Gamma_{catch})
+}$$
+
+The error variable \(x_{err}\) is bound as `String` only inside the catch block. The post-block environment merges both branches, as either may execute.
+
+### Assert typing
+
+$$\dfrac{
+  \Gamma \vdash e : \texttt{Bool}
+}{
+  \Gamma \vdash \texttt{assert}\ e,\ c\ \dashv \Gamma
+}$$
+
+The assertion expression must have type `Bool`. If `false` at runtime, execution halts. The environment is unchanged.
+
+### Pipeline-as-run-target typing
+
+When a `run` statement targets a pipeline \(W'\) instead of a task:
+
+$$\dfrac{
+  W'.\text{params} = ((k_1{:}\tau_1,\dots,k_n{:}\tau_n)) \qquad W'.\text{return} = \tau_o \qquad \Gamma \vdash e_i : \tau_i \quad \forall\, i
+}{
+  \Gamma \vdash \texttt{let}\ x = \texttt{run}\ W'\ \texttt{with}\ \{k_i{:}e_i\}\ \dashv \Gamma[x \mapsto \tau_o]
+}$$
+
+The same argument-matching and return-type rules apply as for task targets.
+
+### Enum typing
+
+$$\dfrac{
+  v \in \text{variants}(\mathcal{N}(E)) \qquad \tau_{param} = \texttt{Enum}[E] \text{ or } \tau_{param} = \texttt{String}
+}{
+  \Gamma \vdash v : \tau_{param}
+}$$
+
+Enum values are string literals validated against the declared variant set. They are assignable to both their enum type and `String`.
+
+### Test block typing
+
+$$\dfrac{
+  \Gamma_0 = \emptyset \qquad \Gamma_0 \vdash s^*\ \dashv \Gamma'
+}{
+  \vdash \texttt{test}\ c\ \{s^*\} : \checkmark
+}$$
+
+Test blocks are checked in an empty initial environment (they have their own scope). They do not contribute to the program's pipeline environments.
+
 ### Parallel typing
 
 $$\dfrac{
@@ -253,6 +316,32 @@ $$\langle [\texttt{while}\ e_c\ \{s^*\}] \cdot S,\ E \rangle \;\longrightarrow\;
 **If-let:**
 
 If \(\mathcal{E}\llbracket e_o \rrbracket_E = v \neq \texttt{null}\), execute the `then` branch with \(x\) bound to \(v\). If it is `null`, execute the `else` branch if present, otherwise skip.
+
+**Try/catch (success):**
+
+$$\langle [\texttt{try}\ \{s_{try}^*\}\ \texttt{catch}\ x_{err}\ \{s_{catch}^*\}] \cdot S,\ E \rangle \;\longrightarrow\; \langle s_{try}^* \cdot S,\ E \rangle$$
+
+When the try block completes without error, execution continues after the try/catch with the environment extended by the try block.
+
+**Try/catch (failure):**
+
+$$\langle [\texttt{try}\ \{s_{try}^*\}\ \texttt{catch}\ x_{err}\ \{s_{catch}^*\}] \cdot S,\ E \rangle \;\xrightarrow{\text{fail}(m)}\; \langle s_{catch}^* \cdot S,\ E[x_{err} \mapsto m] \rangle$$
+
+When a statement in the try block raises error with message \(m\), execution jumps to the catch block with the error variable bound as a `String`.
+
+**Assert (pass):**
+
+$$\langle [\texttt{assert}\ e,\ c] \cdot S,\ E \rangle \;\longrightarrow\; \langle S,\ E \rangle \quad \text{when}\ \mathcal{E}\llbracket e \rrbracket_E = \textit{true}$$
+
+**Assert (fail):**
+
+$$\langle [\texttt{assert}\ e,\ c] \cdot S,\ E \rangle \;\longrightarrow\; \textbf{AssertionError}(c) \quad \text{when}\ \mathcal{E}\llbracket e \rrbracket_E = \textit{false}$$
+
+**Pipeline call:**
+
+$$\langle [\texttt{let}\ x = \texttt{run}\ W'\ \texttt{with}\ \{k_i{:}e_i\}] \cdot S,\ E \rangle \;\longrightarrow\; \langle S,\ E[x \mapsto \text{exec}(W',\ \{k_i \mapsto \mathcal{E}\llbracket e_i \rrbracket_E\})] \rangle$$
+
+The target pipeline \(W'\) is executed in a fresh scope with its parameters bound from the arguments. The result is the pipeline's return value.
 
 **Return:**
 

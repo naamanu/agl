@@ -16,7 +16,7 @@ from .adapters import (
     format_search_hits,
 )
 from .ast import AgentDef, ListType, ObjType, OptionType, PrimitiveType, Program, TaskDef, TypeExpr
-from .runtime import execute_tool
+from .runtime import ExecutionError, execute_tool
 
 TaskHandler = Callable[[dict[str, Any], str | None], Any]
 ToolHandler = Callable[[dict[str, Any]], Any]
@@ -42,7 +42,7 @@ def default_task_registry(
 ) -> dict[str, TaskHandler]:
     config = _resolve_config(adapter_mode, trace_live=trace_live)
     if program is None:
-        raise RuntimeError("default_task_registry requires a parsed program.")
+        raise ExecutionError("default_task_registry requires a parsed program.")
 
     agent_map = program.agents
     tool_registry = default_tool_registry(adapter_mode=adapter_mode)
@@ -212,7 +212,7 @@ def default_task_registry(
                 should_fail = False
 
         if should_fail:
-            raise RuntimeError(
+            raise ExecutionError(
                 f"Transient failure for key '{key}' "
                 f"({attempts_so_far + 1}/{failures_before_success})"
             )
@@ -312,7 +312,7 @@ def _resolve_config(
 ) -> RuntimeAdapterConfig:
     mode = (adapter_mode or os.getenv("AGENTLANG_ADAPTER", "mock")).strip().lower()
     if mode not in {"mock", "live"}:
-        raise RuntimeError("Adapter mode must be one of: mock, live.")
+        raise ExecutionError("Adapter mode must be one of: mock, live.")
 
     default_model = os.getenv("AGENTLANG_DEFAULT_MODEL", "gpt-4.1-mini")
     web_max_results = int(os.getenv("AGENTLANG_WEB_RESULTS", "5"))
@@ -334,7 +334,7 @@ def _build_openai_client(config: RuntimeAdapterConfig) -> OpenAIResponsesClient 
 
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
-        raise RuntimeError("OPENAI_API_KEY is required when adapter mode is 'live'.")
+        raise ExecutionError("OPENAI_API_KEY is required when adapter mode is 'live'.")
 
     base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
     return OpenAIResponsesClient(
@@ -345,7 +345,7 @@ def _build_openai_client(config: RuntimeAdapterConfig) -> OpenAIResponsesClient 
 
 
 def _resolve_model(agent_def: AgentDef | None, default_model: str) -> str:
-    if agent_def is None:
+    if agent_def is None or agent_def.model is None:
         return default_model
     return agent_def.model
 
@@ -354,14 +354,14 @@ def _run_web_search(query: str, *, max_results: int, timeout_s: float) -> list[d
     try:
         return duckduckgo_search(query, max_results=max_results, timeout_s=timeout_s)
     except ToolAdapterError as exc:
-        raise RuntimeError(f"Tool 'web_search' failed: {exc}") from exc
+        raise ExecutionError(f"Tool 'web_search' failed: {exc}") from exc
 
 
 def _run_fetch_url(url: str, *, timeout_s: float) -> str:
     try:
         return fetch_url_text(url, timeout_s=timeout_s)
     except ToolAdapterError as exc:
-        raise RuntimeError(f"Tool 'fetch_url' failed: {exc}") from exc
+        raise ExecutionError(f"Tool 'fetch_url' failed: {exc}") from exc
 
 
 def _complete_live(
@@ -374,7 +374,7 @@ def _complete_live(
     trace: Callable[[str], None] | None = None,
 ) -> str:
     if client is None:
-        raise RuntimeError("OpenAI client was not initialized.")
+        raise ExecutionError("OpenAI client was not initialized.")
     try:
         return client.complete(
             model=model,
@@ -384,7 +384,7 @@ def _complete_live(
             trace=trace,
         )
     except OpenAIAdapterError as exc:
-        raise RuntimeError(f"LLM call failed: {exc}") from exc
+        raise ExecutionError(f"LLM call failed: {exc}") from exc
 
 
 def _complete_live_with_tools(
@@ -399,7 +399,7 @@ def _complete_live_with_tools(
     trace: Callable[[str], None] | None = None,
 ) -> str:
     if client is None:
-        raise RuntimeError("OpenAI client was not initialized.")
+        raise ExecutionError("OpenAI client was not initialized.")
     try:
         return client.complete_with_tools(
             model=model,
@@ -411,7 +411,7 @@ def _complete_live_with_tools(
             trace=trace,
         )
     except OpenAIAdapterError as exc:
-        raise RuntimeError(f"LLM call failed: {exc}") from exc
+        raise ExecutionError(f"LLM call failed: {exc}") from exc
 
 
 def _make_agent_task_handler(
@@ -425,7 +425,7 @@ def _make_agent_task_handler(
 ) -> TaskHandler:
     def handler(args: dict[str, Any], agent: str | None) -> Any:
         if agent is None:
-            raise RuntimeError(
+            raise ExecutionError(
                 f"Agent task '{task.name}' requires a bound agent at runtime."
             )
 
@@ -494,7 +494,7 @@ def _make_agent_task_handler(
             result = json.loads(raw)
         except json.JSONDecodeError as exc:
             trace(f"error=non-json-output raw={_preview_value(raw)}")
-            raise RuntimeError(
+            raise ExecutionError(
                 f"Agent task '{task.name}' returned non-JSON output: {raw!r}"
             ) from exc
         trace(f"result={_preview_value(result)}")
@@ -607,7 +607,7 @@ def _type_to_json_schema(type_expr: TypeExpr) -> dict[str, Any]:
             return {"type": "number"}
         if type_expr.name == "Bool":
             return {"type": "boolean"}
-        raise RuntimeError(f"Unsupported primitive type '{type_expr.name}'.")
+        raise ExecutionError(f"Unsupported primitive type '{type_expr.name}'.")
 
     if isinstance(type_expr, ListType):
         return {
@@ -635,7 +635,20 @@ def _type_to_json_schema(type_expr: TypeExpr) -> dict[str, Any]:
             return {**schema, "type": [schema_type, "null"]}
         return {"anyOf": [schema, {"type": "null"}]}
 
-    raise RuntimeError(f"Unsupported type for JSON schema conversion: {type_expr}.")
+    raise ExecutionError(f"Unsupported type for JSON schema conversion: {type_expr}.")
+
+
+def _is_review_type(type_expr: TypeExpr) -> bool:
+    if not isinstance(type_expr, ObjType):
+        return False
+    approved = type_expr.fields.get("approved")
+    feedback = type_expr.fields.get("feedback")
+    return (
+        isinstance(approved, PrimitiveType)
+        and approved.name == "Bool"
+        and isinstance(feedback, PrimitiveType)
+        and feedback.name == "String"
+    )
 
 
 def _mock_value_for_type(
@@ -655,7 +668,7 @@ def _mock_value_for_type(
             return 0
         if type_expr.name == "Bool":
             return False
-        raise RuntimeError(f"Unsupported primitive type '{type_expr.name}'.")
+        raise ExecutionError(f"Unsupported primitive type '{type_expr.name}'.")
 
     if isinstance(type_expr, ListType):
         return []
@@ -664,9 +677,17 @@ def _mock_value_for_type(
         return None
 
     if isinstance(type_expr, ObjType):
+        if _is_review_type(type_expr):
+            result: dict[str, Any] = {"approved": True, "feedback": "mock approved"}
+            for field, field_type in type_expr.fields.items():
+                if field not in result:
+                    result[field] = _mock_value_for_type(
+                        field_type, label=f"{label}.{field}", seed_args=seed_args
+                    )
+            return result
         return {
             field: _mock_value_for_type(field_type, label=f"{label}.{field}", seed_args=seed_args)
             for field, field_type in type_expr.fields.items()
         }
 
-    raise RuntimeError(f"Unsupported mock generation type: {type_expr}.")
+    raise ExecutionError(f"Unsupported mock generation type: {type_expr}.")

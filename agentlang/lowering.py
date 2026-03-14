@@ -47,7 +47,16 @@ def lower_program(program: Program) -> Program:
             raise LoweringError(f"Workflow '{workflow.name}' conflicts with an existing pipeline.")
         pipelines[workflow.name] = _lower_workflow(program, workflow)
 
-    return replace(program, tasks=tasks, pipelines=pipelines)
+    return Program(
+        agents=program.agents,
+        tools=program.tools,
+        tasks=tasks,
+        pipelines=pipelines,
+        workflows=program.workflows,
+        type_aliases=program.type_aliases,
+        enum_types=program.enum_types,
+        test_blocks=program.test_blocks,
+    )
 
 
 def format_pipeline(pipeline: PipelineDef) -> str:
@@ -170,8 +179,8 @@ def _lower_workflow(program: Program, workflow: WorkflowDef) -> PipelineDef:
 
             loop_body: list[Stmt] = [
                 IfStmt(
-                    condition=RefExpr(parts=[remaining_var, "done"]),
-                    then_statements=[BreakStmt()],
+                    condition=RefExpr(parts=tuple([remaining_var, "done"])),
+                    then_statements=tuple([BreakStmt()]),
                     else_statements=None,
                 )
             ]
@@ -185,8 +194,8 @@ def _lower_workflow(program: Program, workflow: WorkflowDef) -> PipelineDef:
                     _workflow_param_bindings(workflow),
                     _object_field_bindings(step.source, source_type),
                     {
-                        "approved": RefExpr(parts=[review_var, "approved"]),
-                        "feedback": RefExpr(parts=[review_var, "feedback"]),
+                        "approved": RefExpr(parts=tuple([review_var, "approved"])),
+                        "feedback": RefExpr(parts=tuple([review_var, "feedback"])),
                     },
                 ],
             )
@@ -225,7 +234,7 @@ def _lower_workflow(program: Program, workflow: WorkflowDef) -> PipelineDef:
                 RunStmt(
                     target=remaining_var,
                     task_name="countdown",
-                    args={"current": RefExpr(parts=[remaining_var, "next"])},
+                    args={"current": RefExpr(parts=tuple([remaining_var, "next"]))},
                     agent_name=None,
                     retries=0,
                     on_fail="abort",
@@ -236,10 +245,10 @@ def _lower_workflow(program: Program, workflow: WorkflowDef) -> PipelineDef:
                 WhileStmt(
                     condition=BinaryExpr(
                         op="==",
-                        left=RefExpr(parts=[review_var, "approved"]),
+                        left=RefExpr(parts=tuple([review_var, "approved"])),
                         right=LiteralExpr(value=False),
                     ),
-                    statements=loop_body,
+                    statements=tuple(loop_body),
                 )
             )
 
@@ -268,22 +277,22 @@ def _lower_workflow(program: Program, workflow: WorkflowDef) -> PipelineDef:
         name=workflow.name,
         params=workflow.params,
         return_type=workflow.return_type,
-        statements=statements,
+        statements=tuple(statements),
     )
 
 
 def _workflow_param_bindings(workflow: WorkflowDef) -> dict[str, Expr]:
-    return {param.name: RefExpr(parts=[param.name]) for param in workflow.params}
+    return {param.name: RefExpr(parts=tuple([param.name])) for param in workflow.params}
 
 
 def _object_field_bindings(var_name: str, obj_type: ObjType) -> dict[str, Expr]:
-    return {field: RefExpr(parts=[var_name, field]) for field in obj_type.fields}
+    return {field: RefExpr(parts=tuple([var_name, field])) for field in obj_type.fields}
 
 
 def _bind_positional_args(
     workflow: WorkflowDef,
     task: TaskDef,
-    raw_args: list[Expr],
+    raw_args: tuple[Expr, ...],
     alias_bindings: dict[str, str],
     consumed: set[str],
 ) -> dict[str, Expr]:
@@ -337,7 +346,7 @@ def _rewrite_expr(
     if isinstance(expr, RefExpr):
         head = expr.parts[0]
         resolved = _resolve_alias(head, alias_bindings, consumed, workflow_name)
-        return RefExpr(parts=[resolved, *expr.parts[1:]])
+        return RefExpr(parts=tuple([resolved, *expr.parts[1:]]))
 
     if isinstance(expr, BinaryExpr):
         return BinaryExpr(
@@ -356,10 +365,10 @@ def _rewrite_expr(
 
     if isinstance(expr, ListExpr):
         return ListExpr(
-            items=[
+            items=tuple(
                 _rewrite_expr(item, alias_bindings, consumed, workflow_name)
                 for item in expr.items
-            ]
+            )
         )
 
     raise LoweringError(f"Unsupported workflow expression '{type(expr).__name__}'.")
@@ -385,7 +394,7 @@ def _ensure_countdown_task(tasks: dict[str, TaskDef]) -> None:
     countdown = tasks.get("countdown")
     expected = TaskDef(
         name="countdown",
-        params=[Param(name="current", type_expr=PrimitiveType("Number"))],
+        params=tuple([Param(name="current", type_expr=PrimitiveType("Number"))]),
         return_type=ObjType(
             fields={
                 "next": PrimitiveType("Number"),
@@ -422,7 +431,7 @@ def _format_type(type_expr: object) -> str:
     raise LoweringError(f"Unsupported type formatter input: {type_expr!r}")
 
 
-def _format_statements(statements: list[Stmt], indent: str) -> list[str]:
+def _format_statements(statements: tuple[Stmt, ...] | list[Stmt], indent: str) -> list[str]:
     lines: list[str] = []
     child_indent = indent + "  "
     for stmt in statements:

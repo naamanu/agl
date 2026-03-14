@@ -52,6 +52,7 @@ KEYWORDS = {
     "revise",
     "using",
     "max_rounds",
+    "max_concurrency",
     "model",
     "tools",
     "let",
@@ -71,8 +72,15 @@ KEYWORDS = {
     "on_fail",
     "abort",
     "use",
+    "timeout",
     "true",
     "false",
+    "type",
+    "enum",
+    "try",
+    "catch",
+    "assert",
+    "test",
 }
 
 

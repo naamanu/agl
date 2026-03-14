@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import replace
 import unittest
 
 from agentlang import (
@@ -13,9 +12,9 @@ from agentlang import (
     parse_program,
 )
 from agentlang.lowering import LoweringError
-from agentlang.ast import PrimitiveType
+from agentlang.ast import PipelineDef, PrimitiveType, Program
 from agentlang.checker import TypeCheckError
-from agentlang.runtime import RuntimeError as AgentLangRuntimeError
+from agentlang.runtime import ExecutionError
 
 
 class AgentLangDslRuntimeTests(unittest.TestCase):
@@ -39,7 +38,7 @@ pipeline greet() -> String {
             return {"wrong": "Ada"}
 
         with self.assertRaisesRegex(
-            AgentLangRuntimeError,
+            ExecutionError,
             r"Task 'fetch' returned invalid value",
         ):
             execute_pipeline(program, "greet", {}, {"fetch": fetch})
@@ -54,16 +53,26 @@ pipeline greet() -> String {
 }
 """
         program = self._program(source)
-        program.pipelines["greet"] = replace(
-            program.pipelines["greet"],
+        old_pipeline = program.pipelines["greet"]
+        new_pipeline = PipelineDef(
+            name=old_pipeline.name,
+            params=old_pipeline.params,
             return_type=PrimitiveType("Number"),
+            statements=old_pipeline.statements,
+        )
+        program = Program(
+            agents=program.agents,
+            tools=program.tools,
+            tasks=program.tasks,
+            pipelines={**program.pipelines, "greet": new_pipeline},
+            workflows=program.workflows,
         )
 
         def fetch(_args, _agent):
             return "hello"
 
         with self.assertRaisesRegex(
-            AgentLangRuntimeError,
+            ExecutionError,
             r"Pipeline 'greet' returned invalid value",
         ):
             execute_pipeline(program, "greet", {}, {"fetch": fetch})
@@ -88,7 +97,7 @@ pipeline greet() -> String {
             raise ValueError("socket timeout")
 
         with self.assertRaisesRegex(
-            AgentLangRuntimeError,
+            ExecutionError,
             r"Task 'fetch' by agent 'ops' failed after 1 attempts\. Last error: ValueError: socket timeout",
         ):
             execute_pipeline(program, "greet", {}, {"fetch": fetch})
@@ -226,7 +235,7 @@ pipeline noop() -> String {
         self.assertEqual(result[0]["title"], "A")
 
         with self.assertRaisesRegex(
-            AgentLangRuntimeError,
+            ExecutionError,
             r"Tool 'web_search' missing args",
         ):
             execute_tool(program, "web_search", {}, {"web_search": web_search})
@@ -235,7 +244,7 @@ pipeline noop() -> String {
             return [{"title": "A", "url": 42, "snippet": "alpha"}]
 
         with self.assertRaisesRegex(
-            AgentLangRuntimeError,
+            ExecutionError,
             r"Tool 'web_search' returned invalid value",
         ):
             execute_tool(

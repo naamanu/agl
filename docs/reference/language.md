@@ -4,20 +4,22 @@ Complete syntax reference for AgentLang v0.
 
 ## File structure
 
-An `.agent` file contains any number of `agent`, `tool`, `task`, `pipeline`, and `workflow` declarations in any order. Names must be unique across each declaration type.
+An `.agent` file contains any number of `type` aliases, `enum` definitions, `agent`, `tool`, `task`, `pipeline`, `workflow`, and `test` declarations in any order. Names must be unique across each declaration type.
 
 ```agentlang
-tool web_search(query: String) -> List[Obj{title: String, url: String, snippet: String}] {}
-
--- agent declarations
-agent planner { model: "gpt-4.1", tools: [web_search] }
-agent writer  { model: "gpt-4.1-mini", tools: [] }
+-- type aliases and enums
+type Notes = Obj{notes: String};
+enum Tone { formal, casual };
 
 -- tool declarations
 tool web_search(query: String) -> List[Obj{title: String, url: String, snippet: String}] {}
 
+-- agent declarations (model is optional)
+agent planner { model: "gpt-4.1", tools: [web_search] }
+agent writer  { tools: [] }
+
 -- task signatures
-task research(topic: String) -> Obj{notes: String} {}
+task research(topic: String) -> Notes {}
 task draft(notes: String) -> Obj{article: String} {}
 
 -- pipeline definitions
@@ -33,21 +35,67 @@ workflow publish_topic_blog(topic: String) -> String {
   stage draft = writer does draft(plan.notes);
   return draft.article;
 }
+
+-- test blocks
+test "research returns notes" {
+  let r = run research with { topic: "test" };
+  assert r.notes != "", "notes should not be empty";
+}
 ```
+
+## `type` alias declaration
+
+```
+type <Name> = <type>;
+```
+
+Defines a named alias for a type expression. Aliases are resolved at parse time — everywhere `<Name>` appears in a type position, it is replaced by the underlying type.
+
+```agentlang
+type Notes = Obj{notes: String, sources: List[String]};
+type Profile = Obj{name: String, score: Number};
+```
+
+Constraints: alias names must be unique. Aliases cannot be recursive.
+
+## `enum` declaration
+
+```
+enum <Name> { variant1, variant2, ... };
+```
+
+Defines a closed set of string variants. Enum values are assignable to `String` parameters. At runtime, the value is validated to be one of the declared variants.
+
+```agentlang
+enum Tone { formal, conversational, technical };
+enum Status { pending, approved, rejected };
+```
+
+Constraints: enum names must be unique. Variant names must be unique within an enum.
 
 ## `agent` declaration
 
 ```
 agent <name> {
-  model: "<string>"
+  [ model: "<string>" ]
   , tools: [ <id>, ... ]
 }
 ```
 
 | Field | Required | Description |
 |---|---|---|
-| `model` | Yes | Model name string literal |
+| `model` | No | Model name string literal (defaults to `None`) |
 | `tools` | Yes | List of tool identifiers (may be empty `[]`) |
+
+When `model` is omitted, the runtime uses the `AGENTLANG_DEFAULT_MODEL` environment variable (live mode) or the default mock handler.
+
+```agentlang
+-- with explicit model
+agent planner { model: "gpt-4.1", tools: [web_search] }
+
+-- without model (uses default)
+agent writer { tools: [] }
+```
 
 Constraints: agent names unique, tool names unique within the list.
 
@@ -169,16 +217,32 @@ let <x> = run <task>
 
 Constraints: argument keys must exactly match task parameter names. Duplicate argument keys are a parse error.
 
+### Shorthand run
+
+```
+let <x> = <task>( <expr>, ... ) [ by <agent> ];
+```
+
+Syntactic sugar for `let <x> = run <task> with { ... }`. Arguments are positional and matched to declared parameter names in order.
+
+```agentlang
+let article = draft(notes.notes) by writer;
+-- equivalent to:
+let article = run draft with { notes: notes.notes } by writer;
+```
+
 ### Parallel block
 
 ```
-parallel {
+parallel [ max_concurrency <N> ] {
   let <a> = run <task> with { ... } [ by <agent> ] [ retries N ] [ on_fail ... ];
   let <b> = run <task> with { ... } [ by <agent> ] [ retries N ] [ on_fail ... ];
 } join;
 ```
 
 Only `let ... = run ...;` statements are permitted inside. All bindings from inside the block are available after `join`.
+
+The optional `max_concurrency N` limits how many branches run simultaneously within this block (overrides the global `--workers` for this block).
 
 ### Conditional
 
@@ -231,6 +295,65 @@ return <expr> ;
 
 Expression type must match the pipeline's declared return type.
 
+### Try / catch
+
+```
+try {
+  <statements>
+} catch <error_var> {
+  <statements>
+}
+```
+
+If any statement in the `try` block raises a runtime error, execution jumps to the `catch` block. The `<error_var>` is bound as a `String` containing the error message. Variables bound inside `try` that were also bound before `try` are available after the block (the catch block may re-bind them).
+
+```agentlang
+try {
+  let result = run risky_task with { input: data };
+} catch err {
+  let fallback = run safe_task with { query: err };
+}
+```
+
+### Assert
+
+```
+assert <expr>, "<message>";
+```
+
+Evaluates `<expr>` — if it is `false`, execution halts with an assertion error containing `<message>`. The expression must have type `Bool`.
+
+```agentlang
+assert final.title != "", "Title must not be empty";
+```
+
+### Test block
+
+```
+test "<name>" {
+  <statements>
+}
+```
+
+Test blocks are top-level declarations that run only when the `--test` flag is passed. Each test block has its own scope. Tests may contain `run`, `let`, `assert`, and other pipeline statements. Failed assertions cause test failure.
+
+```agentlang
+test "draft produces article" {
+  let d = run draft with { notes: "test notes" };
+  assert d.article != "", "Article should not be empty";
+}
+```
+
+### Pipeline call (pipeline-calls-pipeline)
+
+A `run` statement can target another pipeline instead of a task:
+
+```agentlang
+let result = run sub_pipeline with { topic: topic, angle: "deep-dive" };
+```
+
+The target pipeline's parameters and return type are checked identically to task calls. This enables modular composition of pipelines.
+
 ## Expressions
 
 | Form | Description |
@@ -259,6 +382,10 @@ Duplicate keys in object literals are a parse error.
 | List | `List[T]` |
 | Option | `Option[T]` |
 | Object | `Obj{field: Type, field: Type}` |
+| Enum | `EnumName` (declared via `enum`) |
+| Type alias | `AliasName` (declared via `type`) |
+
+Enum values are assignable to `String` parameters. Type aliases are resolved at parse time.
 
 Duplicate field names in `Obj` types are a parse error.
 

@@ -1,15 +1,17 @@
 # Agents
 
-An **agent** is a named execution profile that binds a model name and a list of tools. Agents don't do anything on their own — they are referenced in run statements to declare *which model and tools* should handle a task.
+An **agent** is a named execution profile that binds a model name and a list of tools. Agents don't do anything on their own — they are referenced in pipeline `run` statements or selected implicitly by workflow `stage`/`review` steps to declare *which model and tools* should handle a task.
 
 ## Syntax
 
 ```agentlang
 agent <name> {
-  model: "<model-name>"
+  [ model: "<model-name>" ]
   , tools: [tool_a, tool_b]
 }
 ```
+
+The `model` field is optional. When omitted, the agent uses the runtime default.
 
 ## Example
 
@@ -21,15 +23,15 @@ agent planner {
   , tools: [web_search]
 }
 
+-- model omitted — uses AGENTLANG_DEFAULT_MODEL or mock default
 agent writer {
-  model: "gpt-4.1-mini"
-  , tools: []
+  tools: []
 }
 ```
 
 ## Rules
 
-- `model` is required and must be a string literal.
+- `model` is optional. When omitted, it defaults to `None` and the runtime falls back to `AGENTLANG_DEFAULT_MODEL` (live mode) or the default mock handler.
 - `tools` is required. Use `[]` for an empty tool list.
 - Tool names are identifiers and must be declared with `tool` definitions in the DSL.
 - Agent names must be unique within a file.
@@ -37,7 +39,7 @@ agent writer {
 
 ## Using an agent
 
-Reference an agent in a run statement with `by`:
+Reference an agent in a pipeline run statement with `by`:
 
 ```agentlang
 let r = run research with { topic: topic } by planner;
@@ -45,11 +47,18 @@ let r = run research with { topic: topic } by planner;
 
 When `by` is omitted, the runtime falls back to the `AGENTLANG_DEFAULT_MODEL` environment variable (in live mode) or the default mock handler.
 
+In workflows, the agent is attached directly to the step:
+
+```agentlang
+stage plan = planner does draft_outline(topic);
+```
+
 ## Model resolution
 
 | Situation | Model used |
 |---|---|
-| `by agent_name` present | `agent_name.model` from the DSL |
+| `by agent_name` present, `model` declared | `agent_name.model` from the DSL |
+| `by agent_name` present, `model` omitted | `AGENTLANG_DEFAULT_MODEL` env var (live) or mock default |
 | `by` omitted, live mode | `AGENTLANG_DEFAULT_MODEL` env var |
 | `by` omitted, mock mode | no model needed |
 

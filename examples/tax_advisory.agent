@@ -1,0 +1,220 @@
+-- Complex multi-agent tax advisory workflow.
+--
+-- Scenario: a taxpayer submits financial details and the system produces
+-- a personalised tax-optimisation report.  A research agent gathers
+-- current rules, a strategist builds a plan, a compliance reviewer
+-- ensures accuracy, and an editor polishes the final deliverable.
+
+tool web_search(query: String) -> List[Obj{title: String, url: String, snippet: String}] {}
+tool fetch_url(url: String) -> Obj{content: String} {}
+
+-- ── type aliases & enums ──────────────────────────────────────────
+
+enum FilingStatus { single, married_joint, married_separate, head_of_household };
+
+type TaxProfile = Obj{
+  bracket: String,
+  entity_type: String,
+  applicable_credits: List[String],
+  risk_flags: List[String]
+};
+
+type RulesSummary = Obj{
+  rules_summary: String,
+  sources: List[String]
+};
+
+type Strategy = Obj{
+  strategy: String,
+  estimated_savings: Number,
+  sources: List[String]
+};
+
+type ReviewVerdict = Obj{approved: Bool, feedback: String};
+
+-- ── agents ──────────────────────────────────────────────────────────
+
+agent tax_researcher {
+  model: "gpt-4.1"
+  , tools: [web_search, fetch_url]
+}
+
+agent strategist {
+  model: "gpt-4.1"
+  , tools: [web_search]
+}
+
+agent compliance_reviewer {
+  model: "gpt-4.1-mini"
+  , tools: [web_search]
+}
+
+agent editor {
+  model: "gpt-4.1-mini"
+  , tools: []
+}
+
+agent formatter {
+  model: "gpt-4.1-mini"
+  , tools: []
+}
+
+-- ── tasks ───────────────────────────────────────────────────────────
+
+-- Step 1: gather taxpayer context
+task classify_taxpayer(
+  filing_status: FilingStatus,
+  income: Number,
+  state: String,
+  has_business: Bool
+) -> TaxProfile by agent {}
+
+-- Step 2: research current federal + state rules in parallel
+task research_federal_rules(
+  bracket: String,
+  entity_type: String
+) -> RulesSummary by agent {}
+
+task research_state_rules(
+  state: String,
+  bracket: String
+) -> RulesSummary by agent {}
+
+-- Step 3: build deduction & credit strategy
+task build_deduction_strategy(
+  filing_status: FilingStatus,
+  income: Number,
+  has_business: Bool,
+  bracket: String,
+  entity_type: String,
+  applicable_credits: List[String],
+  federal_rules: String,
+  state_rules: String
+) -> Strategy by agent {}
+
+-- Step 4: compliance review loop
+task review_strategy(
+  filing_status: FilingStatus,
+  income: Number,
+  state: String,
+  strategy: String,
+  estimated_savings: Number,
+  sources: List[String]
+) -> ReviewVerdict by agent {}
+
+task revise_strategy(
+  filing_status: FilingStatus,
+  income: Number,
+  state: String,
+  strategy: String,
+  estimated_savings: Number,
+  sources: List[String],
+  feedback: String
+) -> Strategy by agent {}
+
+-- Step 5: edit & format
+task edit_report(
+  filing_status: FilingStatus,
+  state: String,
+  strategy: String,
+  estimated_savings: Number
+) -> Obj{
+  title: String,
+  report: String
+} by agent {}
+
+task format_deliverable(
+  title: String,
+  report: String,
+  sources: List[String]
+) -> Obj{document: String} by agent {}
+
+-- ── pipeline ────────────────────────────────────────────────────────
+
+pipeline tax_optimisation_report(
+  filing_status: String,
+  income: Number,
+  state: String,
+  has_business: Bool
+) -> String {
+  -- classify the taxpayer
+  let profile = run classify_taxpayer with {
+    filing_status: filing_status,
+    income: income,
+    state: state,
+    has_business: has_business
+  } by strategist timeout 30;
+
+  -- research federal and state rules in parallel (fall back to generic summary on failure)
+  parallel max_concurrency 3 {
+    let federal = run research_federal_rules with {
+      bracket: profile.bracket,
+      entity_type: profile.entity_type
+    } by tax_researcher retries 1 timeout 60
+      on_fail use { rules_summary: "Standard federal rules for " + profile.bracket + " bracket, " + profile.entity_type + " entity.", sources: ["general-knowledge"] };
+    let state_info = run research_state_rules with {
+      state: state,
+      bracket: profile.bracket
+    } by tax_researcher retries 1 timeout 60
+      on_fail use { rules_summary: "Standard " + state + " state rules for " + profile.bracket + " bracket.", sources: ["general-knowledge"] };
+  } join;
+
+  -- build the deduction & credit strategy
+  let plan = run build_deduction_strategy with {
+    filing_status: filing_status,
+    income: income,
+    has_business: has_business,
+    bracket: profile.bracket,
+    entity_type: profile.entity_type,
+    applicable_credits: profile.applicable_credits,
+    federal_rules: federal.rules_summary,
+    state_rules: state_info.rules_summary
+  } by strategist timeout 60;
+
+  -- compliance review loop (max 3 rounds)
+  let verdict = run review_strategy with {
+    filing_status: filing_status,
+    income: income,
+    state: state,
+    strategy: plan.strategy,
+    estimated_savings: plan.estimated_savings,
+    sources: plan.sources
+  } by compliance_reviewer;
+
+  while verdict.approved == false {
+    let plan = run revise_strategy with {
+      filing_status: filing_status,
+      income: income,
+      state: state,
+      strategy: plan.strategy,
+      estimated_savings: plan.estimated_savings,
+      sources: plan.sources,
+      feedback: verdict.feedback
+    } by strategist;
+
+    let verdict = run review_strategy with {
+      filing_status: filing_status,
+      income: income,
+      state: state,
+      strategy: plan.strategy,
+      estimated_savings: plan.estimated_savings,
+      sources: plan.sources
+    } by compliance_reviewer;
+  }
+
+  -- edit and format final deliverable
+  let edited = run edit_report with {
+    filing_status: filing_status,
+    state: state,
+    strategy: plan.strategy,
+    estimated_savings: plan.estimated_savings
+  } by editor;
+
+  let final = run format_deliverable with {
+    title: edited.title,
+    report: edited.report,
+    sources: plan.sources
+  } by formatter;
+
+  return final.document;
+}

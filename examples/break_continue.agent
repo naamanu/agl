@@ -1,0 +1,35 @@
+agent ops {
+  model: "gpt-4.1-mini"
+  , tools: []
+}
+
+task countdown(current: Number) -> Obj{next: Number, done: Bool} {}
+
+pipeline stop_early(start: Number) -> Number {
+  let state = run countdown with { current: start } by ops;
+
+  while state.done == false {
+    if state.next == 2 {
+      break;
+    }
+
+    let state = run countdown with { current: state.next } by ops;
+  }
+
+  return state.next;
+}
+
+pipeline skip_once(start: Number) -> Number {
+  let state = run countdown with { current: start } by ops;
+
+  while state.done == false {
+    if state.next == 2 {
+      let state = run countdown with { current: state.next } by ops;
+      continue;
+    }
+
+    let state = run countdown with { current: state.next } by ops;
+  }
+
+  return state.next;
+}

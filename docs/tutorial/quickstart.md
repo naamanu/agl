@@ -1,6 +1,6 @@
 # Quick Start
 
-This guide gets you from zero to a running AgentLang pipeline in five minutes.
+This guide gets you from zero to a running AgentLang pipeline or workflow in five minutes.
 
 ## Prerequisites
 
@@ -44,7 +44,24 @@ Output:
 !!! info "Mock mode"
     By default, pipelines run in **mock mode** — all task handlers are deterministic local functions that return structured placeholders. No API key required.
 
-## 3. Try parallel execution
+## 3. Run your first workflow
+
+The higher-level `workflow` surface is the recommended authoring model for multi-agent handoffs and review loops.
+
+```bash
+python main.py examples/multiagent_blog.agent publish_topic_blog \
+  --input '{"topic":"agent memory systems"}'
+```
+
+Lower it to explicit pipeline IR:
+
+```bash
+python main.py examples/multiagent_blog.agent publish_topic_blog --lower
+```
+
+This shows the generated `run`, `while`, and `break` structure that the runtime actually executes.
+
+## 4. Try parallel execution
 
 The `compare.agent` pipeline runs two research tasks in parallel, then merges results:
 
@@ -63,7 +80,7 @@ Output:
 
 The two `research` calls ran concurrently — you'll see both results merged before the `compare` step executes.
 
-## 4. See retry and fallback
+## 5. See retry and fallback
 
 The `reliability.agent` pipeline uses `retries` and `on_fail use` to handle transient failures gracefully.
 
@@ -96,7 +113,7 @@ python main.py examples/reliability.agent resilient_brief \
 !!! tip "What just happened?"
     `fail_count: 5` exceeds the `retries 2` budget in the pipeline, so the `on_fail use` clause provides a fallback value. The `if/else` block then routes execution based on whether the fallback was used.
 
-## 5. Start the REPL
+## 6. Start the REPL
 
 For interactive exploration:
 
@@ -113,10 +130,28 @@ AgentLang REPL (adapter=mock). Type 'exit' to quit.
 > exit
 ```
 
-Each line at the `>` prompt takes the form `<source_file> <pipeline_name> [json_input]`. Errors are printed and the REPL continues — no restart needed.
+Each line at the `>` prompt takes the form `<source_file> <pipeline_or_workflow_name> [json_input]`. Errors are printed and the REPL continues — no restart needed.
+
+## 7. Trace a live run
+
+When debugging live agent behavior, enable tracing:
+
+```bash
+python main.py examples/incident_runbook.agent respond_to_incident \
+  --adapter live \
+  --trace-live \
+  --input '{"incident":"database failover drill"}'
+```
+
+Trace lines are printed to `stderr` and show:
+
+- agent task start/end
+- OpenAI request mode
+- tool calls and tool results
+- final structured task outputs
 
 ## Next steps
 
-- **Understand the language** → [Agents](../concepts/agents.md), [Tasks](../concepts/tasks.md), [Pipelines](../concepts/pipelines.md)
+- **Understand the language** → [Agents](../concepts/agents.md), [Tasks](../concepts/tasks.md), [Workflows](../concepts/workflows.md), [Pipelines](../concepts/pipelines.md)
 - **Write your own pipeline** → [Your First Pipeline](first-pipeline.md)
 - **Connect to OpenAI** → [Adapters](../reference/adapters.md)

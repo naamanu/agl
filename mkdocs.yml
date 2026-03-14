@@ -1,5 +1,5 @@
 site_name: AgentLang
-site_description: A tiny DSL for agentic workflows — define agents, typed tasks, and pipelines.
+site_description: A tiny DSL for agentic workflows — define agents, typed tasks, declarative workflows, and pipelines.
 site_url: https://nanamanu.com/agl
 repo_url: https://github.com/naamanu/agl
 repo_name: naamanu/agl
@@ -17,10 +17,15 @@ nav:
   - Concepts:
       - Agents: concepts/agents.md
       - Tasks: concepts/tasks.md
+      - Workflows: concepts/workflows.md
       - Pipelines: concepts/pipelines.md
       - The Type System: concepts/types.md
       - Parallel Execution: concepts/parallel.md
       - Retry & Fallback: concepts/retry.md
+      - Error Handling: concepts/error-handling.md
+      - Testing: concepts/testing.md
+      - Plugins: concepts/plugins.md
+      - Observability: concepts/observability.md
   - Reference:
       - Language Reference: reference/language.md
       - CLI Reference: reference/cli.md

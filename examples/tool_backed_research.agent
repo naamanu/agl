@@ -1,0 +1,13 @@
+tool web_search(query: String) -> List[Obj{title: String, url: String, snippet: String}] {}
+
+agent scout {
+  model: "gpt-4.1"
+  , tools: [web_search]
+}
+
+task research(topic: String) -> Obj{notes: String} {}
+
+pipeline notes(topic: String) -> String {
+  let r = run research with { topic: topic } by scout;
+  return r.notes;
+}

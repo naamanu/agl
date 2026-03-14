@@ -4,6 +4,9 @@ This tutorial walks through building an AgentLang pipeline from scratch — a su
 
 By the end you'll have a working `.agent` file and understand the relationship between agents, tasks, and pipelines.
 
+!!! note "Pipeline vs workflow"
+    `pipeline` is the explicit low-level execution language. For most multi-agent authoring, prefer `workflow` and let AgentLang lower it to a pipeline automatically. This tutorial stays with `pipeline` because it teaches the core execution model directly.
+
 ## The goal
 
 Given a user message like `"urgent refund request"`, we want to:

@@ -5,7 +5,7 @@ AgentLang has first-class syntax for running tasks concurrently. The `parallel {
 ## Syntax
 
 ```agentlang
-parallel {
+parallel [ max_concurrency <N> ] {
   let a = run task_name with { ... } by agent;
   let b = run task_name with { ... } by agent;
 } join;
@@ -55,7 +55,9 @@ The two `research` calls ran at the same time. After `join`, both `a` and `b` ar
 
 ## Controlling concurrency
 
-The `--workers` flag sets the maximum number of concurrent threads:
+There are two levels of concurrency control:
+
+**Global:** The `--workers` flag sets the maximum number of concurrent threads across all parallel blocks:
 
 ```bash
 python main.py examples/compare.agent compare_options \
@@ -64,6 +66,18 @@ python main.py examples/compare.agent compare_options \
 ```
 
 The default is `8`. The value must be `>= 1`.
+
+**Per-block:** The optional `max_concurrency` clause limits how many branches run simultaneously within a single parallel block:
+
+```agentlang
+parallel max_concurrency 2 {
+  let a = run research with { topic: "angle A" } by planner;
+  let b = run research with { topic: "angle B" } by planner;
+  let c = run research with { topic: "angle C" } by planner;
+} join;
+```
+
+With `max_concurrency 2`, at most 2 of the 3 branches execute at the same time. This is useful for rate-limiting API calls or controlling resource usage within a specific block without affecting other parallel blocks.
 
 ## Thread safety
 

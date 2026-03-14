@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 from urllib import error, request
 
 
@@ -23,42 +23,118 @@ class OpenAIResponsesClient:
         prompt: str,
         system: str | None = None,
         max_output_tokens: int | None = None,
+        trace: Callable[[str], None] | None = None,
     ) -> str:
-        payload: dict[str, Any] = {
-            "model": model,
-            "input": self._build_input(prompt=prompt, system=system),
-        }
-        if max_output_tokens is not None:
-            payload["max_output_tokens"] = max_output_tokens
-
-        body = json.dumps(payload).encode("utf-8")
-        req = request.Request(
-            url=f"{self.base_url.rstrip('/')}/responses",
-            data=body,
-            method="POST",
-            headers={
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-            },
+        if trace is not None:
+            trace(f"openai request mode=complete model={model}")
+        data = self.create_response(
+            model=model,
+            input_items=self._build_input(prompt=prompt, system=system),
+            max_output_tokens=max_output_tokens,
         )
-
-        try:
-            with request.urlopen(req, timeout=self.timeout_s) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-        except error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace")
-            raise OpenAIAdapterError(f"OpenAI HTTP {exc.code}: {detail}") from exc
-        except error.URLError as exc:
-            raise OpenAIAdapterError(f"OpenAI network error: {exc.reason}") from exc
-        except TimeoutError as exc:
-            raise OpenAIAdapterError("OpenAI request timed out.") from exc
-        except json.JSONDecodeError as exc:
-            raise OpenAIAdapterError("OpenAI response was not valid JSON.") from exc
-
         text = _extract_text(data)
         if not text:
             raise OpenAIAdapterError("OpenAI response contained no text output.")
+        if trace is not None:
+            trace(f"openai response mode=complete text={_preview_text(text)}")
         return text
+
+    def complete_with_tools(
+        self,
+        *,
+        model: str,
+        prompt: str,
+        system: str | None,
+        tools: list[dict[str, Any]],
+        call_tool: Callable[[str, dict[str, Any]], Any],
+        max_output_tokens: int | None = None,
+        max_round_trips: int = 8,
+        trace: Callable[[str], None] | None = None,
+    ) -> str:
+        if trace is not None:
+            trace(
+                f"openai request mode=tool-call model={model} tools={','.join(tool['name'] for tool in tools)}"
+            )
+        response = self.create_response(
+            model=model,
+            input_items=self._build_input(prompt=prompt, system=system),
+            tools=tools,
+            parallel_tool_calls=False,
+            max_output_tokens=max_output_tokens,
+        )
+
+        for _ in range(max_round_trips):
+            function_calls = _extract_function_calls(response)
+            if not function_calls:
+                text = _extract_text(response)
+                if not text:
+                    raise OpenAIAdapterError("OpenAI response contained no text output.")
+                if trace is not None:
+                    trace(f"openai response mode=tool-call text={_preview_text(text)}")
+                return text
+            if trace is not None:
+                trace(
+                    "openai tool-calls "
+                    + ",".join(tool_call["name"] for tool_call in function_calls)
+                )
+
+            output_items: list[dict[str, Any]] = []
+            for tool_call in function_calls:
+                name = tool_call["name"]
+                call_id = tool_call["call_id"]
+                arguments_text = tool_call["arguments"]
+                try:
+                    arguments = json.loads(arguments_text)
+                except json.JSONDecodeError as exc:
+                    raise OpenAIAdapterError(
+                        f"OpenAI tool call for '{name}' returned invalid JSON arguments."
+                    ) from exc
+                if not isinstance(arguments, dict):
+                    raise OpenAIAdapterError(
+                        f"OpenAI tool call for '{name}' returned non-object arguments."
+                    )
+                result = call_tool(name, arguments)
+                output_items.append(
+                    {
+                        "type": "function_call_output",
+                        "call_id": call_id,
+                        "output": json.dumps(result),
+                    }
+                )
+
+            response = self.create_response(
+                model=model,
+                input_items=output_items,
+                tools=tools,
+                previous_response_id=response.get("id"),
+                max_output_tokens=max_output_tokens,
+            )
+
+        raise OpenAIAdapterError("OpenAI tool-calling loop exceeded max_round_trips.")
+
+    def create_response(
+        self,
+        *,
+        model: str,
+        input_items: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+        previous_response_id: str | None = None,
+        parallel_tool_calls: bool | None = None,
+        max_output_tokens: int | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "model": model,
+            "input": input_items,
+        }
+        if tools:
+            payload["tools"] = tools
+        if previous_response_id is not None:
+            payload["previous_response_id"] = previous_response_id
+        if parallel_tool_calls is not None:
+            payload["parallel_tool_calls"] = parallel_tool_calls
+        if max_output_tokens is not None:
+            payload["max_output_tokens"] = max_output_tokens
+        return self._post(payload)
 
     @staticmethod
     def _build_input(*, prompt: str, system: str | None) -> list[dict[str, Any]]:
@@ -77,6 +153,31 @@ class OpenAIResponsesClient:
             }
         )
         return messages
+
+    def _post(self, payload: dict[str, Any]) -> dict[str, Any]:
+        body = json.dumps(payload).encode("utf-8")
+        req = request.Request(
+            url=f"{self.base_url.rstrip('/')}/responses",
+            data=body,
+            method="POST",
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            },
+        )
+
+        try:
+            with request.urlopen(req, timeout=self.timeout_s) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise OpenAIAdapterError(f"OpenAI HTTP {exc.code}: {detail}") from exc
+        except error.URLError as exc:
+            raise OpenAIAdapterError(f"OpenAI network error: {exc.reason}") from exc
+        except TimeoutError as exc:
+            raise OpenAIAdapterError("OpenAI request timed out.") from exc
+        except json.JSONDecodeError as exc:
+            raise OpenAIAdapterError("OpenAI response was not valid JSON.") from exc
 
 
 def _extract_text(payload: dict[str, Any]) -> str:
@@ -104,3 +205,34 @@ def _extract_text(payload: dict[str, Any]) -> str:
 
     return "\n".join(fragments).strip()
 
+
+def _extract_function_calls(payload: dict[str, Any]) -> list[dict[str, str]]:
+    output = payload.get("output")
+    if not isinstance(output, list):
+        return []
+
+    function_calls: list[dict[str, str]] = []
+    for item in output:
+        if not isinstance(item, dict):
+            continue
+        if item.get("type") != "function_call":
+            continue
+        name = item.get("name")
+        call_id = item.get("call_id")
+        arguments = item.get("arguments")
+        if all(isinstance(value, str) for value in [name, call_id, arguments]):
+            function_calls.append(
+                {
+                    "name": name,
+                    "call_id": call_id,
+                    "arguments": arguments,
+                }
+            )
+    return function_calls
+
+
+def _preview_text(text: str, limit: int = 180) -> str:
+    compact = " ".join(text.split())
+    if len(compact) <= limit:
+        return compact
+    return compact[: limit - 3] + "..."

@@ -39,6 +39,7 @@ def default_task_registry(
     *,
     adapter_mode: str | None = None,
     trace_live: bool | None = None,
+    extra_tool_handlers: dict[str, ToolHandler] | None = None,
 ) -> dict[str, TaskHandler]:
     config = _resolve_config(adapter_mode, trace_live=trace_live)
     if program is None:
@@ -46,6 +47,9 @@ def default_task_registry(
 
     agent_map = program.agents
     tool_registry = default_tool_registry(adapter_mode=adapter_mode)
+    # Merge plugin-provided tool handlers (plugin takes precedence over builtins)
+    if extra_tool_handlers:
+        tool_registry.update(extra_tool_handlers)
     client = _build_openai_client(config)
 
     def resolve_agent(agent_name: str | None) -> AgentDef | None:

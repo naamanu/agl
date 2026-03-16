@@ -80,7 +80,7 @@ pipeline p() -> String {
             time.sleep(2)
             return "done"
 
-        with self.assertRaisesRegex(ExecutionError, r"timed out"):
+        with self.assertRaisesRegex(ExecutionError, r"exceeded.*deadline"):
             execute_pipeline(program, "p", {}, {"slow": slow})
 
     def test_retry_backoff_uses_sleep(self) -> None:

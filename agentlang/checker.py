@@ -355,6 +355,24 @@ def _check_run_stmt_pipeline(program, stmt, env, pipeline_target):
             f"{_span_prefix(stmt.span)}Cannot use 'by agent' when calling pipeline '{pipeline_target.name}'."
         )
 
+    if stmt.retries > 0:
+        raise TypeCheckError(
+            f"{_span_prefix(stmt.span)}Cannot use 'retries' when calling pipeline '{pipeline_target.name}'. "
+            f"Retry logic belongs inside the target pipeline."
+        )
+
+    if stmt.on_fail != "abort":
+        raise TypeCheckError(
+            f"{_span_prefix(stmt.span)}Cannot use 'on_fail' when calling pipeline '{pipeline_target.name}'. "
+            f"Error handling belongs inside the target pipeline or in a try/catch block."
+        )
+
+    if stmt.timeout is not None:
+        raise TypeCheckError(
+            f"{_span_prefix(stmt.span)}Cannot use 'timeout' when calling pipeline '{pipeline_target.name}'. "
+            f"Timeout should be set on individual task calls inside the target pipeline."
+        )
+
     expected_params = {param.name: param.type_expr for param in pipeline_target.params}
     provided_params = set(stmt.args)
 

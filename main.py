@@ -90,6 +90,7 @@ def main() -> None:
         print(f"Invalid --input: {exc}", file=sys.stderr)
         raise SystemExit(2) from exc
 
+    ctx = None
     try:
         source_text = _read_text(args.source)
         raw_program = parse_program(source_text, lower=False)
@@ -112,10 +113,12 @@ def main() -> None:
             load_plugin(plugin_path, plugin_registry)
 
         # Build task registry, merging plugin handlers (plugin takes precedence)
+        plugin_tool_handlers = plugin_registry.get_tool_handlers()
         task_reg = default_task_registry(
             program,
             adapter_mode=args.adapter,
             trace_live=args.trace_live,
+            extra_tool_handlers=plugin_tool_handlers,
         )
         task_reg.update(plugin_registry.get_task_handlers())
 
@@ -139,10 +142,6 @@ def main() -> None:
                 print(line)
             print(f"\n{passed} passed, {failed} failed, {len(results)} total")
 
-            if ctx and args.output_trace:
-                with open(args.output_trace, "w", encoding="utf-8") as f:
-                    f.write(ctx.to_json())
-
             if failed > 0:
                 raise SystemExit(1)
             return
@@ -156,13 +155,16 @@ def main() -> None:
             ctx=ctx,
         )
 
-        if ctx and args.output_trace:
-            with open(args.output_trace, "w", encoding="utf-8") as f:
-                f.write(ctx.to_json())
-
     except Exception as exc:  # noqa: BLE001 - CLI should show concise failures.
         print(f"Execution error: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
+    finally:
+        if ctx is not None and args.output_trace:
+            try:
+                with open(args.output_trace, "w", encoding="utf-8") as f:
+                    f.write(ctx.to_json())
+            except Exception:
+                print(f"Warning: failed to write trace to {args.output_trace}", file=sys.stderr)
 
     print(json.dumps({"result": result}, indent=2))
 

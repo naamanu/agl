@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import copy
+import queue as _queue
 import random
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass
@@ -40,6 +42,17 @@ ToolHandler = Callable[[dict[str, Any]], Any]
 
 
 class ExecutionError(ValueError):
+    pass
+
+
+class HandlerTimeoutError(ExecutionError):
+    """Raised when a task handler exceeds its deadline.
+
+    The handler thread is still running in the background and may continue
+    to mutate state.  Retrying while the previous invocation is in flight
+    risks duplicating or reordering side-effects, so the retry loop treats
+    this as non-retryable.
+    """
     pass
 
 
@@ -292,8 +305,9 @@ def _execute_run_stmt(
     # Check if this is a pipeline call
     if stmt.task_name in program.pipelines and stmt.task_name not in program.tasks:
         bound_args = {name: _eval_expr(expr, env) for name, expr in stmt.args.items()}
+        ctx_key = None
         if ctx is not None:
-            ctx.record_task_start(f"pipeline:{stmt.task_name}", bound_args)
+            ctx_key = ctx.record_task_start(f"pipeline:{stmt.task_name}", bound_args)
         try:
             result = execute_pipeline(
                 program=program,
@@ -304,10 +318,10 @@ def _execute_run_stmt(
             )
         except Exception as exc:
             if ctx is not None:
-                ctx.record_task_error(f"pipeline:{stmt.task_name}", exc)
+                ctx.record_task_error(f"pipeline:{stmt.task_name}", exc, key=ctx_key)
             raise
         if ctx is not None:
-            ctx.record_task_end(f"pipeline:{stmt.task_name}", result)
+            ctx.record_task_end(f"pipeline:{stmt.task_name}", result, key=ctx_key)
         return result
 
     task = program.tasks.get(stmt.task_name)
@@ -325,8 +339,9 @@ def _execute_run_stmt(
     # Validate enum values in args at runtime
     _validate_enum_args(program, task, bound_args)
 
+    ctx_key = None
     if ctx is not None:
-        ctx.record_task_start(stmt.task_name, bound_args)
+        ctx_key = ctx.record_task_start(stmt.task_name, bound_args)
 
     for attempt in range(max_attempts):
         if attempt > 0:
@@ -338,8 +353,11 @@ def _execute_run_stmt(
         except Exception as exc:  # noqa: BLE001 - workflow policy decides error handling
             last_error = exc
             if ctx is not None:
-                ctx.record_retry(stmt.task_name, attempt + 1, exc)
-            if attempt < max_attempts - 1:
+                ctx.record_retry(stmt.task_name, attempt + 1, exc, key=ctx_key)
+            # Timeout means the handler is still running in the background;
+            # retrying would overlap with the abandoned invocation and risk
+            # duplicating or reordering side-effects.
+            if not isinstance(exc, HandlerTimeoutError) and attempt < max_attempts - 1:
                 continue
             if stmt.on_fail == "use":
                 if stmt.fallback_expr is None:
@@ -353,11 +371,11 @@ def _execute_run_stmt(
                         f"{fallback!r} for type {task.return_type}."
                     ) from exc
                 if ctx is not None:
-                    ctx.record_task_end(stmt.task_name, fallback)
+                    ctx.record_task_end(stmt.task_name, fallback, key=ctx_key)
                 return fallback
             task_label = _format_task_label(stmt.task_name, stmt.agent_name)
             if ctx is not None:
-                ctx.record_task_error(stmt.task_name, exc)
+                ctx.record_task_error(stmt.task_name, exc, key=ctx_key)
             raise ExecutionError(
                 f"{task_label} failed after {max_attempts} attempts. "
                 f"Last error: {_format_exception_detail(exc)}"
@@ -373,46 +391,59 @@ def _execute_run_stmt(
         _validate_enum_result(program, task, result)
 
         if ctx is not None:
-            ctx.record_task_end(stmt.task_name, result)
+            ctx.record_task_end(stmt.task_name, result, key=ctx_key)
         return result
 
     raise ExecutionError(f"{_format_task_label(stmt.task_name, stmt.agent_name)} failed.") from last_error
 
 
 def _validate_enum_args(program: Program, task, args: dict[str, Any]) -> None:
-    """Validate that enum-typed args have valid variant values."""
+    """Validate that enum-typed args have valid variant values, including nested shapes."""
     for param in task.params:
-        if isinstance(param.type_expr, EnumType):
-            enum_def = program.enum_types.get(param.type_expr.name)
-            if enum_def is not None and param.name in args:
-                value = args[param.name]
-                if isinstance(value, str) and value not in enum_def.variants:
-                    raise ExecutionError(
-                        f"Task '{task.name}' arg '{param.name}' has value '{value}' "
-                        f"which is not a valid variant of enum '{enum_def.name}'. "
-                        f"Valid variants: {list(enum_def.variants)}"
-                    )
+        if param.name in args:
+            _validate_enum_value(program, param.type_expr, args[param.name],
+                                 context=f"Task '{task.name}' arg '{param.name}'")
 
 
 def _validate_enum_result(program: Program, task, result: Any) -> None:
-    """Validate enum values in task results."""
-    # Walk the return type looking for EnumType fields
-    _validate_enum_value(program, task.return_type, result)
+    """Validate enum values in task results, including nested shapes."""
+    _validate_enum_value(program, task.return_type, result,
+                         context=f"Task '{task.name}' result")
 
 
-def _validate_enum_value(program: Program, type_expr, value: Any) -> None:
-    """Recursively validate enum values in a structured result."""
+def _validate_enum_value(program: Program, type_expr, value: Any, *, context: str = "Value") -> None:
+    """Recursively validate enum values in a structured result, including List and Option."""
     if isinstance(type_expr, EnumType):
         enum_def = program.enum_types.get(type_expr.name)
         if enum_def is not None and isinstance(value, str) and value not in enum_def.variants:
             raise ExecutionError(
-                f"Value '{value}' is not a valid variant of enum '{enum_def.name}'. "
+                f"{context} has value '{value}' "
+                f"which is not a valid variant of enum '{enum_def.name}'. "
                 f"Valid variants: {list(enum_def.variants)}"
             )
     elif isinstance(type_expr, ObjType) and isinstance(value, dict):
         for field_name, field_type in type_expr.fields.items():
             if field_name in value:
-                _validate_enum_value(program, field_type, value[field_name])
+                _validate_enum_value(program, field_type, value[field_name],
+                                     context=f"{context}.{field_name}")
+    elif isinstance(type_expr, ListType) and isinstance(value, list):
+        for i, item in enumerate(value):
+            _validate_enum_value(program, type_expr.item_type, item,
+                                 context=f"{context}[{i}]")
+    elif isinstance(type_expr, OptionType) and value is not None:
+        _validate_enum_value(program, type_expr.item_type, value, context=context)
+
+
+_leaked_threads: set[threading.Thread] = set()
+_leaked_thread_lock = threading.Lock()
+
+
+def get_leaked_thread_count() -> int:
+    """Return the number of abandoned handler threads that are still alive."""
+    with _leaked_thread_lock:
+        dead = {t for t in _leaked_threads if not t.is_alive()}
+        _leaked_threads.difference_update(dead)
+        return len(_leaked_threads)
 
 
 def _invoke_handler(
@@ -421,16 +452,42 @@ def _invoke_handler(
     agent_name: str | None,
     timeout: float | None,
 ) -> Any:
+    """Invoke a task handler with an optional deadline.
+
+    When *timeout* is set, the handler runs on a daemon thread. If it does
+    not complete within the deadline the call raises ``ExecutionError``, but
+    the handler thread is **not** cancelled — Python cannot forcibly stop a
+    thread. The abandoned thread continues running in the background (counted
+    by ``get_leaked_thread_count()``), which means it may still mutate shared
+    state or hold resources after the deadline is exceeded.
+    """
     if timeout is None:
         return handler(args, agent_name)
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        future = pool.submit(handler, args, agent_name)
+
+    result_q: _queue.SimpleQueue = _queue.SimpleQueue()
+
+    def _worker():
         try:
-            return future.result(timeout=timeout)
-        except FuturesTimeoutError:
-            raise ExecutionError(
-                f"Task handler timed out after {timeout}s."
-            )
+            result_q.put(("ok", handler(args, agent_name)))
+        except Exception as exc:
+            result_q.put(("err", exc))
+
+    t = threading.Thread(target=_worker, daemon=True)
+    t.start()
+    t.join(timeout=timeout)
+
+    if t.is_alive():
+        with _leaked_thread_lock:
+            _leaked_threads.add(t)
+        raise HandlerTimeoutError(
+            f"Task handler exceeded {timeout}s deadline "
+            f"(handler may still be running in background)."
+        )
+
+    status, value = result_q.get_nowait()
+    if status == "err":
+        raise value
+    return value
 
 
 def _format_task_label(task_name: str, agent_name: str | None) -> str:

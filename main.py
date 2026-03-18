@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import sys
 
 from agentlang import (
@@ -19,6 +20,8 @@ from agentlang import (
 
 
 def main() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+
     if len(sys.argv) >= 2 and sys.argv[1] == "repl":
         _repl(sys.argv[2:])
         return
@@ -191,7 +194,10 @@ def _repl(argv: list[str]) -> None:
     except ImportError:
         pass
 
-    print(f"AgentLang REPL (adapter={adapter or 'mock'}). Type 'exit' to quit.")
+    print(f"AgentLang REPL (adapter={adapter or 'mock'}). Type 'help' for commands, 'exit' to quit.")
+
+    current_program = None
+
     while True:
         try:
             line = input("> ").strip()
@@ -200,42 +206,90 @@ def _repl(argv: list[str]) -> None:
             break
         if not line:
             continue
-        if line == "exit":
+
+        parts = line.split()
+        cmd = parts[0].lower()
+        args_list = parts[1:]
+
+        if cmd in ("exit", "quit"):
             break
 
-        parts = line.split(None, 2)
-        if len(parts) < 2:
-            print("Usage: <source_file> <pipeline_name> [json_input]", file=sys.stderr)
-            continue
+        elif cmd == "help":
+            print("Commands:")
+            print("  load <path>                 - Load and parse an .agent source file")
+            print("  run <pipeline_name> [json]  - Execute a loaded pipeline")
+            print("  list                        - List loaded agents, tasks, and pipelines")
+            print("  clear                       - Clear currently loaded session state")
+            print("  help                        - Show this help message")
+            print("  exit / quit                 - Exit the REPL")
 
-        source_path, pipeline_name = parts[0], parts[1]
-        input_json = parts[2] if len(parts) > 2 else "{}"
+        elif cmd == "clear":
+            current_program = None
+            print("Session cleared.")
 
-        try:
-            payload = json.loads(input_json)
-            if not isinstance(payload, dict):
-                raise ValueError("Input JSON must be an object.")
-        except ValueError as exc:
-            print(f"Invalid input: {exc}", file=sys.stderr)
-            continue
+        elif cmd == "load":
+            if not args_list:
+                print("Usage: load <path>", file=sys.stderr)
+                continue
+            path = args_list[0]
+            try:
+                source_text = _read_text(path)
+                program = parse_program(source_text)
+                check_program(program)
+                current_program = program
+                print(f"Successfully loaded '{path}'.")
+                print(f"Loaded: {len(program.agents)} agents, {len(program.tasks)} tasks, {len(program.pipelines)} pipelines.")
+            except Exception as exc:  # noqa: BLE001
+                print(f"Error loading '{path}': {exc}", file=sys.stderr)
 
-        try:
-            source_text = _read_text(source_path)
-            program = parse_program(source_text)
-            check_program(program)
-            result = execute_pipeline(
-                program=program,
-                pipeline_name=pipeline_name,
-                inputs=payload,
-                task_registry=default_task_registry(
-                    program,
-                    adapter_mode=adapter,
-                    trace_live=trace_live,
-                ),
-            )
-            print(json.dumps({"result": result}, indent=2))
-        except Exception as exc:  # noqa: BLE001 - REPL should stay alive after errors.
-            print(f"Error: {exc}", file=sys.stderr)
+        elif cmd == "list":
+            if not current_program:
+                print("No program loaded. Use 'load <path>' first.", file=sys.stderr)
+                continue
+            print("Loaded definitions:")
+            for name in current_program.agents:
+                print(f"  Agent: {name}")
+            for name in current_program.tasks:
+                print(f"  Task: {name}")
+            for name in current_program.pipelines:
+                print(f"  Pipeline: {name}")
+
+        elif cmd == "run":
+            if not current_program:
+                print("No program loaded. Use 'load <path>' first.", file=sys.stderr)
+                continue
+            if not args_list:
+                print("Usage: run <pipeline_name> [json_input]", file=sys.stderr)
+                continue
+
+            pipeline_name = args_list[0]
+            input_json = " ".join(args_list[1:]) if len(args_list) > 1 else "{}"
+
+            try:
+                payload = json.loads(input_json)
+                if not isinstance(payload, dict):
+                    raise ValueError("Input JSON must be an object.")
+            except ValueError as exc:
+                print(f"Invalid input JSON: {exc}", file=sys.stderr)
+                continue
+
+            try:
+                result = execute_pipeline(
+                    program=current_program,
+                    pipeline_name=pipeline_name,
+                    inputs=payload,
+                    task_registry=default_task_registry(
+                        current_program,
+                        adapter_mode=adapter,
+                        trace_live=trace_live,
+                    ),
+                )
+                print(json.dumps({"result": result}, indent=2))
+            except Exception as exc:  # noqa: BLE001
+                print(f"Execution error: {exc}", file=sys.stderr)
+
+        else:
+            print(f"Unknown command: '{cmd}'. Type 'help' for available commands.", file=sys.stderr)
 
 
 def _read_text(path: str) -> str:

@@ -1,6 +1,6 @@
 # Examples
 
-AgentLang ships with five `.agent` examples in `examples/`. Each one exercises a distinct set of language features.
+AgentLang ships with seventeen `.agent` examples in `examples/`. Each one exercises a distinct set of language features.
 
 ---
 
@@ -9,6 +9,8 @@ AgentLang ships with five `.agent` examples in `examples/`. Each one exercises a
 **Features:** sequential `let` statements, two agents, field access
 
 ```agentlang
+tool web_search(query: String) -> List[Obj{title: String, url: String, snippet: String}] {}
+
 agent planner {
   model: "gpt-4.1"
   , tools: [web_search]
@@ -47,6 +49,8 @@ python main.py examples/blog.agent blog_post \
 **Features:** `parallel { } join`, merging branch outputs downstream
 
 ```agentlang
+tool web_search(query: String) -> List[Obj{title: String, url: String, snippet: String}] {}
+
 agent planner {
   model: "gpt-4.1"
   , tools: [web_search]
@@ -218,6 +222,477 @@ export OPENAI_API_KEY="sk-..."
 python main.py examples/live_answer.agent answer \
   --adapter live \
   --input '{"question":"What is an agentic workflow?"}'
+```
+
+---
+
+## `complete_agent.agent` — fuller multi-agent workflow
+
+**Features:** tool-enabled research agent, parallel research, downstream comparison, direct LLM prompt, final drafting step
+
+```agentlang
+tool web_search(query: String) -> List[Obj{title: String, url: String, snippet: String}] {}
+
+agent scout {
+  model: "gpt-4.1"
+  , tools: [web_search]
+}
+
+agent analyst {
+  model: "gpt-4.1-mini"
+  , tools: []
+}
+
+agent writer {
+  model: "gpt-4.1-mini"
+  , tools: []
+}
+
+task research(topic: String) -> Obj{notes: String} {}
+task compare(note_a: String, note_b: String) -> Obj{decision: String} {}
+task llm_complete(prompt: String) -> Obj{text: String} {}
+task draft(notes: String) -> Obj{article: String} {}
+
+pipeline executive_brief(product: String, competitor_a: String, competitor_b: String) -> String {
+  parallel {
+    let a = run research with { topic: competitor_a + " strategy for " + product } by scout;
+    let b = run research with { topic: competitor_b + " strategy for " + product } by scout;
+  } join;
+
+  let c = run compare with { note_a: a.notes, note_b: b.notes } by analyst;
+  let o = run llm_complete with { prompt: "Write a concise executive brief outline for " + product + ".\nDecision context:\n" + c.decision } by analyst;
+  let d = run draft with { notes: "Executive outline:\n" + o.text + "\n\nResearch A:\n" + a.notes + "\n\nResearch B:\n" + b.notes } by writer;
+  return d.article;
+}
+```
+
+Mock mode:
+
+```bash
+python main.py examples/complete_agent.agent executive_brief \
+  --input '{"product":"team chat","competitor_a":"Slack","competitor_b":"Microsoft Teams"}'
+```
+
+This example is the closest thing in-tree to a "complete agent" workflow: a tool-enabled scout gathers context, an analyst synthesizes a decision, and a writer turns that into a final artifact.
+
+---
+
+## `tool_declarations.agent` — first-class tool declarations
+
+**Features:** declared `tool`, agent tool reference validation
+
+```agentlang
+tool web_search(query: String) -> List[Obj{title: String, url: String, snippet: String}] {}
+
+agent researcher {
+  model: "gpt-4.1-mini"
+  , tools: [web_search]
+}
+
+pipeline declared_tool_name(query: String) -> String {
+  return "declared " + query;
+}
+```
+
+```bash
+python main.py examples/tool_declarations.agent declared_tool_name \
+  --input '{"query":"web_search"}'
+```
+
+```json
+{
+  "result": "declared web_search"
+}
+```
+
+---
+
+## `tool_backed_research.agent` — tool-backed research task
+
+**Features:** declared tool, agent capability binding, tool-aware `research` task
+
+```agentlang
+tool web_search(query: String) -> List[Obj{title: String, url: String, snippet: String}] {}
+
+agent scout {
+  model: "gpt-4.1"
+  , tools: [web_search]
+}
+
+task research(topic: String) -> Obj{notes: String} {}
+
+pipeline notes(topic: String) -> String {
+  let r = run research with { topic: topic } by scout;
+  return r.notes;
+}
+```
+
+```bash
+python main.py examples/tool_backed_research.agent notes \
+  --input '{"topic":"incident response"}'
+```
+
+```json
+{
+  "result": "[scout] key points for 'incident response'"
+}
+```
+
+Live mode uses the declared `web_search` tool when the model decides it needs external grounding:
+
+```bash
+python main.py examples/tool_backed_research.agent notes \
+  --adapter live \
+  --input '{"topic":"incident response"}'
+```
+
+---
+
+## `agent_task.agent` — task declared for agent execution
+
+**Features:** `task ... by agent {}`, explicit agent binding, declared tool access
+
+```agentlang
+tool web_search(query: String) -> List[Obj{title: String, url: String, snippet: String}] {}
+
+agent researcher {
+  model: "gpt-4.1"
+  , tools: [web_search]
+}
+
+task investigate(topic: String) -> Obj{summary: String, sources: List[String]} by agent {}
+
+pipeline brief(topic: String) -> String {
+  let r = run investigate with { topic: topic } by researcher;
+  return r.summary;
+}
+```
+
+Mock mode:
+
+```bash
+python main.py examples/agent_task.agent brief \
+  --input '{"topic":"incident response"}'
+```
+
+```json
+{
+  "result": "[researcher:investigate.summary] incident response"
+}
+```
+
+Live mode:
+
+```bash
+python main.py examples/agent_task.agent brief \
+  --adapter live \
+  --input '{"topic":"incident response"}'
+```
+
+---
+
+## `multiagent_blog.agent` — declarative workflow with internal review looping
+
+**Features:** `workflow`, `stage`, `review`, inferred review task, internal planner-reviewer revision loop, editor and publisher handoff
+
+```agentlang
+tool web_search(query: String) -> List[Obj{title: String, url: String, snippet: String}] {}
+tool fetch_url(url: String) -> Obj{content: String} {}
+
+agent planner {
+  model: "gpt-4.1"
+  , tools: [web_search, fetch_url]
+}
+
+agent reviewer {
+  model: "gpt-4.1-mini"
+  , tools: [web_search]
+}
+
+agent editor {
+  model: "gpt-4.1-mini"
+  , tools: []
+}
+
+agent publisher {
+  model: "gpt-4.1-mini"
+  , tools: []
+}
+
+task plan_blog(topic: String) -> Obj{outline: String, sources: List[String]} by agent {}
+task review_outline(topic: String, outline: String, sources: List[String]) -> Obj{approved: Bool, feedback: String} by agent {}
+task revise_outline(topic: String, outline: String, sources: List[String], feedback: String) -> Obj{outline: String, sources: List[String]} by agent {}
+task write_blog(topic: String, outline: String) -> Obj{article: String} by agent {}
+task edit_blog(topic: String, article: String) -> Obj{title: String, article: String} by agent {}
+task publish_blog(topic: String, title: String, article: String) -> Obj{post: String} by agent {}
+
+workflow publish_topic_blog(topic: String) -> String {
+  stage plan = planner does plan_blog(topic);
+  review outline = reviewer checks plan revise with planner using revise_outline max_rounds 3;
+  stage draft = planner does write_blog(topic, outline.outline);
+  stage edited = editor does edit_blog(topic, draft.article);
+  stage published = publisher does publish_blog(topic, edited.title, edited.article);
+  return published.post;
+}
+```
+
+This example is the higher-level authoring model: the user declares stages and a review policy, and the compiler lowers that to an explicit pipeline with `run`, `while`, and `break` internally. The planner produces an outline, the reviewer approves or rejects it, and the revise/re-review loop happens in the lowered IR instead of the source file.
+
+```bash
+python main.py examples/multiagent_blog.agent publish_topic_blog \
+  --input '{"topic":"agent memory systems"}'
+
+python main.py examples/multiagent_blog.agent publish_topic_blog \
+  --lower
+```
+
+---
+
+## `incident_runbook.agent` — declarative incident workflow
+
+**Features:** `workflow`, `stage`, `review`, tool-backed planning, revision budget, final publishing handoff
+
+```agentlang
+tool web_search(query: String) -> List[Obj{title: String, url: String, snippet: String}] {}
+tool fetch_url(url: String) -> Obj{content: String} {}
+
+agent researcher {
+  model: "gpt-4.1"
+  , tools: [web_search, fetch_url]
+}
+
+agent reviewer {
+  model: "gpt-4.1-mini"
+  , tools: [web_search]
+}
+
+agent commander {
+  model: "gpt-4.1-mini"
+  , tools: []
+}
+
+task draft_response_plan(incident: String) -> Obj{plan: String, sources: List[String]} by agent {}
+task review_response_plan(incident: String, plan: String, sources: List[String]) -> Obj{approved: Bool, feedback: String} by agent {}
+task revise_response_plan(incident: String, plan: String, sources: List[String], feedback: String) -> Obj{plan: String, sources: List[String]} by agent {}
+task publish_runbook(incident: String, plan: String) -> Obj{runbook: String} by agent {}
+
+workflow respond_to_incident(incident: String) -> String {
+  stage draft_plan = researcher does draft_response_plan(incident);
+  review response_plan = reviewer checks draft_plan revise with researcher using revise_response_plan max_rounds 2;
+  stage published = commander does publish_runbook(incident, response_plan.plan);
+  return published.runbook;
+}
+```
+
+```bash
+python main.py examples/incident_runbook.agent respond_to_incident \
+  --input '{"incident":"database failover drill"}'
+
+python main.py examples/incident_runbook.agent respond_to_incident \
+  --lower
+```
+
+---
+
+## `launch_dossier.agent` — full multi-agent workflow
+
+**Features:** `workflow`, multiple agents, tool-backed research, review/revise loop, strategic synthesis, editing, publishing
+
+```agentlang
+tool web_search(query: String) -> List[Obj{title: String, url: String, snippet: String}] {}
+tool fetch_url(url: String) -> Obj{content: String} {}
+
+agent researcher {
+  model: "gpt-4.1"
+  , tools: [web_search, fetch_url]
+}
+
+agent reviewer {
+  model: "gpt-4.1-mini"
+  , tools: [web_search]
+}
+
+agent strategist {
+  model: "gpt-4.1-mini"
+  , tools: []
+}
+
+agent editor {
+  model: "gpt-4.1-mini"
+  , tools: []
+}
+
+agent publisher {
+  model: "gpt-4.1-mini"
+  , tools: []
+}
+
+task draft_market_scan(product: String, audience: String) -> Obj{scan: String, sources: List[String]} by agent {}
+task review_approved_scan(product: String, audience: String, scan: String, sources: List[String]) -> Obj{approved: Bool, feedback: String} by agent {}
+task revise_market_scan(product: String, audience: String, scan: String, sources: List[String], feedback: String) -> Obj{scan: String, sources: List[String]} by agent {}
+task build_positioning(product: String, audience: String, scan: String) -> Obj{positioning: String} by agent {}
+task draft_launch_plan(product: String, audience: String, positioning: String) -> Obj{plan: String} by agent {}
+task edit_launch_plan(product: String, plan: String) -> Obj{title: String, plan: String} by agent {}
+task publish_launch_dossier(product: String, audience: String, title: String, plan: String) -> Obj{dossier: String} by agent {}
+
+workflow launch_dossier(product: String, audience: String) -> String {
+  stage market_scan = researcher does draft_market_scan(product, audience);
+  review approved_scan = reviewer checks market_scan revise with researcher using revise_market_scan max_rounds 2;
+  stage positioning = strategist does build_positioning(product, audience, approved_scan.scan);
+  stage launch_plan = strategist does draft_launch_plan(product, audience, positioning.positioning);
+  stage edited = editor does edit_launch_plan(product, launch_plan.plan);
+  stage published = publisher does publish_launch_dossier(product, audience, edited.title, edited.plan);
+  return published.dossier;
+}
+```
+
+```bash
+python main.py examples/launch_dossier.agent launch_dossier \
+  --input '{"product":"AI support copilot","audience":"IT operations teams"}'
+
+python main.py examples/launch_dossier.agent launch_dossier \
+  --lower
+```
+
+This is the most complete high-level example in-tree: a researcher gathers and revises market context, a strategist turns that into positioning and a launch plan, then an editor and publisher finalize the dossier.
+
+---
+
+## `while_loop.agent` — first-class looping construct
+
+**Features:** `while`, variable rebinding, deterministic loop progress
+
+```agentlang
+agent ops {
+  model: "gpt-4.1-mini"
+  , tools: []
+}
+
+task countdown(current: Number) -> Obj{next: Number, done: Bool} {}
+
+pipeline loop_to_zero(start: Number) -> Number {
+  let state = run countdown with { current: start } by ops;
+
+  while state.done == false {
+    let state = run countdown with { current: state.next } by ops;
+  }
+
+  return state.next;
+}
+```
+
+```bash
+python main.py examples/while_loop.agent loop_to_zero \
+  --input '{"start":3}'
+```
+
+```json
+{
+  "result": 0
+}
+```
+
+---
+
+## `break_continue.agent` — loop control flow
+
+**Features:** `while`, `break`, `continue`, variable rebinding
+
+```bash
+python main.py examples/break_continue.agent stop_early \
+  --input '{"start":4}'
+python main.py examples/break_continue.agent skip_once \
+  --input '{"start":4}'
+```
+
+```json
+{
+  "result": 2
+}
+```
+
+```json
+{
+  "result": 0
+}
+```
+
+---
+
+## `showcase_all_features.agent` — comprehensive feature showcase
+
+**Features:** type aliases, enums, shorthand syntax, `max_concurrency`, try/catch, pipeline-calls-pipeline, assert, test blocks, plugin support, observability
+
+This example exercises every new AgentLang construct in a content production system that researches a topic, drafts in parallel across two angles, merges drafts, runs a quality review loop, and produces a final deliverable.
+
+```agentlang
+-- type aliases and enums
+enum ContentTone { formal, conversational, technical };
+type ResearchNotes = Obj{notes: String, sources: List[String]};
+type DraftResult = Obj{article: String, word_count: Number};
+
+-- agent with optional model
+agent writer { tools: [] }
+
+-- sub-pipeline (pipeline-calls-pipeline)
+pipeline research_and_draft(topic: String, angle: String) -> DraftResult {
+  let notes = run research with { topic: topic + " — " + angle } by researcher retries 1 timeout 30;
+  let article = draft(notes.notes) by writer;  -- shorthand syntax
+  return article;
+}
+
+-- main pipeline with max_concurrency, try/catch, assert
+pipeline produce(topic: String) -> String {
+  parallel max_concurrency 2 {
+    let angle_a = run research_and_draft with { topic: topic, angle: "technical deep-dive" };
+    let angle_b = run research_and_draft with { topic: topic, angle: "practical applications" };
+  } join;
+
+  try {
+    let enrichment = run risky_enrich with { topic: topic };
+  } catch err {
+    let fallback = run fallback_enrich with { query: err };
+  }
+
+  assert final.title != "", "Title must not be empty";
+  return final.article;
+}
+
+-- in-language tests
+test "merge_drafts combines two drafts" {
+  let result = run merge_drafts with { draft_a: "A.", draft_b: "B.", word_count_a: 100, word_count_b: 200 };
+  assert result.total_words == 300, "Total words should be sum of both";
+}
+```
+
+```bash
+# Run the pipeline with plugin
+python main.py examples/showcase_all_features.agent produce \
+  --input '{"topic":"AI safety"}' \
+  --plugin examples/showcase_plugin.py
+
+# Run tests
+python main.py examples/showcase_all_features.agent --test \
+  --plugin examples/showcase_plugin.py
+
+# With execution trace
+python main.py examples/showcase_all_features.agent produce \
+  --input '{"topic":"AI safety"}' \
+  --plugin examples/showcase_plugin.py \
+  --output-trace trace.json
+```
+
+---
+
+## `tax_advisory.agent` — complex multi-agent tax advisory
+
+**Features:** enums (`FilingStatus`), type aliases (`TaxProfile`, `RulesSummary`, `Strategy`, `ReviewVerdict`), parallel with `max_concurrency`, retry with fallback, `timeout`, multi-agent review loop
+
+A taxpayer submits financial details and the system produces a personalised tax-optimisation report through classification, parallel research, strategy building, compliance review, and formatting.
+
+```bash
+python main.py examples/tax_advisory.agent tax_optimisation_report \
+  --input '{"filing_status":"single","income":120000,"state":"California","has_business":true}'
 ```
 
 ---

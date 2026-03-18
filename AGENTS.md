@@ -1,11 +1,11 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-Core implementation lives in `agentlang/`: parser and language model (`ast.py`, `lexer.py`, `parser.py`), validation (`checker.py`), execution (`runtime.py`, `stdlib.py`), and integrations in `agentlang/adapters/`.  
-`main.py` is the CLI entrypoint (`run` and `repl` subcommands).  
+Core implementation lives in `agentlang/`: parser and language model (`ast.py`, `lexer.py`, `parser.py`), validation (`checker.py`), execution (`runtime.py`, `stdlib.py`), observability (`context.py`), extensibility (`plugins.py`), and integrations in `agentlang/adapters/`.  
+`main.py` is the CLI entrypoint (direct pipeline execution plus the `repl` subcommand).  
 `examples/` contains runnable `.agent` programs used for smoke testing and demos.  
 `docs/` contains language, runtime, adapter, and contribution docs.  
-There is currently no dedicated `tests/` directory.
+`tests/` contains automated coverage for parser, checker, and runtime behavior.
 
 ## Build, Test, and Development Commands
 - `python -m py_compile main.py agentlang/*.py agentlang/adapters/*.py`  
@@ -16,8 +16,12 @@ There is currently no dedicated `tests/` directory.
   Exercise retry/failure behavior.
 - `python main.py repl --adapter mock`  
   Start the interactive REPL.
-- `OPENAI_API_KEY=... python main.py run examples/blog.agent blog_post --adapter live --input '{"topic":"agent memory patterns"}'`  
+- `OPENAI_API_KEY=... python main.py run examples/blog.agent blog_post --adapter live --input '{"topic":"agent memory patterns"}'`
   Verify live adapter behavior.
+- `python main.py examples/showcase_all_features.agent --test --plugin examples/showcase_plugin.py`
+  Run in-language test blocks.
+- `python main.py examples/showcase_all_features.agent produce --input '{"topic":"AI safety"}' --output-trace trace.json --plugin examples/showcase_plugin.py`
+  Run with execution trace output.
 
 ## Coding Style & Naming Conventions
 Use Python 3.14+ with 4-space indentation and explicit type hints on public functions.  
@@ -26,10 +30,12 @@ Keep changes small and composable; prefer explicit errors over silent fallbacks.
 For language features, update parser/checker/runtime together and keep docs synchronized.
 
 ## Testing Guidelines
-No formal unit-test framework is configured yet. Minimum validation for each change:
+Minimum validation for each change:
 1. Run `py_compile` checks.
-2. Run at least one happy-path example and one failure/retry example from `examples/`.
-3. If DSL/runtime semantics change, update relevant docs (`docs/language-reference.md`, `docs/runtime-and-typing.md`, `docs/semantics.md`).
+2. Run `python -m unittest discover -s tests`.
+3. Run at least one happy-path example and one failure/retry example from `examples/`.
+4. Run `python main.py examples/showcase_all_features.agent --test --plugin examples/showcase_plugin.py`.
+5. If DSL/runtime semantics change, update relevant docs (`docs/reference/language.md`, `docs/reference/runtime.md`, `docs/advanced/semantics.md`).
 
 ## Commit & Pull Request Guidelines
 Follow Conventional Commit style seen in history: `feat: ...`, `fix: ...` (imperative, concise subject).  

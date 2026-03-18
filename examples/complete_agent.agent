@@ -1,0 +1,33 @@
+tool web_search(query: String) -> List[Obj{title: String, url: String, snippet: String}] {}
+
+agent scout {
+  model: "gpt-4.1"
+  , tools: [web_search]
+}
+
+agent analyst {
+  model: "gpt-4.1-mini"
+  , tools: []
+}
+
+agent writer {
+  model: "gpt-4.1-mini"
+  , tools: []
+}
+
+task research(topic: String) -> Obj{notes: String} {}
+task compare(note_a: String, note_b: String) -> Obj{decision: String} {}
+task llm_complete(prompt: String) -> Obj{text: String} {}
+task draft(notes: String) -> Obj{article: String} {}
+
+pipeline executive_brief(product: String, competitor_a: String, competitor_b: String) -> String {
+  parallel {
+    let a = run research with { topic: competitor_a + " strategy for " + product } by scout;
+    let b = run research with { topic: competitor_b + " strategy for " + product } by scout;
+  } join;
+
+  let c = run compare with { note_a: a.notes, note_b: b.notes } by analyst;
+  let o = run llm_complete with { prompt: "Write a concise executive brief outline for " + product + ".\nDecision context:\n" + c.decision } by analyst;
+  let d = run draft with { notes: "Executive outline:\n" + o.text + "\n\nResearch A:\n" + a.notes + "\n\nResearch B:\n" + b.notes } by writer;
+  return d.article;
+}

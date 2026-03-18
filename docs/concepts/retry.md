@@ -57,6 +57,12 @@ let f = run flaky_fetch
 !!! warning "Type must match"
     The fallback expression type must match the task's declared return type. This is enforced statically by the type checker.
 
+## Timeout and retries
+
+When a task has both `retries` and `timeout` clauses, a timeout skips all remaining retries. The runtime raises `HandlerTimeoutError` and does not attempt the task again. This is because the timed-out handler thread is still running in the background — retrying would overlap invocations, risking duplicated or reordered side-effects.
+
+The `on_fail use` fallback still applies after a timeout. If the task times out and a fallback expression is declared, the fallback value is used instead of raising an error.
+
 ## Full example
 
 From `examples/reliability.agent`:
@@ -118,3 +124,5 @@ if f.data == "fallback for " + topic {
 ```
 
 This is a common pattern — compute a sentinel fallback value and check for it downstream.
+
+## Next: [Error Handling](error-handling.md)

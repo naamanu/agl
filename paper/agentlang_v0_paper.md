@@ -17,7 +17,7 @@ AgentLang v0 is designed around three constraints.
 2. Strong enough to catch common orchestration errors before runtime.
 3. Practical enough to execute real mock/live task handlers from a CLI.
 
-The project currently ships as a self-contained Python 3.14+ implementation with five example programs, a formal semantics, and an interactive REPL.
+The project currently ships as a self-contained Python 3.14+ implementation with twelve example programs, a formal semantics, and an interactive REPL.
 
 ## 2. Language Overview
 
@@ -211,7 +211,17 @@ The small shortfall from the theoretical 2.00x is attributable to thread schedul
 3. Parallel runtime uses thread pools and is tuned for I/O-bound handlers.
 4. Live adapter behavior remains nondeterministic due to model/network factors.
 
-### 6.3 Future work
+### 6.3 Soundness notes
+
+The formal semantics specifies subtyping as covariant for `List` and `Obj` types. This is classically unsound for mutable containers; however, AgentLang v0 has no mutation operators and the runtime deep-copies values at handler boundaries, so covariant subtyping is sound given the current language design. If mutation is ever added, the subtyping rules must be revised to contravariant or invariant positions as appropriate.
+
+The `try/catch` construct catches only `ExecutionError` (task failures, assertion failures). Control-flow signals (`return`, `break`, `continue`) propagate through `try/catch` boundaries. Timeout errors are non-retryable because the handler thread may still be running.
+
+The equality and comparison rules are slightly more liberal than the base assignability relation: they additionally permit `null == Option[T]` and `Enum[E] == String` comparisons. These extra cases do not compromise type safety (allowing more comparisons cannot introduce runtime type errors).
+
+Return exhaustiveness analysis is conservative (boolean AND across if/else branches, OR with sequential returns). It may reject programs that always return (false negative) but never accepts programs that don't (no false positive). Dead code after return is type-checked but not flagged.
+
+### 6.4 Future work
 
 1. Add a formalized effect/exception layer for richer failure semantics.
 2. Extend types (sum types, optional types, schema aliases).

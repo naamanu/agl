@@ -204,6 +204,7 @@ let <x> = run <task>
   with { <key>: <expr>, ... }
   [ by <agent> ]
   [ retries <N> ]
+  [ timeout <N> ]
   [ on_fail abort | on_fail use <expr> ]
   ;
 ```
@@ -212,6 +213,7 @@ let <x> = run <task>
 |---|---|---|
 | `by <agent>` | none | Agent binding for model + tool resolution |
 | `retries N` | `0` | Retry budget (N+1 total attempts) |
+| `timeout N` | none | Deadline in seconds; handler is abandoned if exceeded |
 | `on_fail abort` | default | Raise error on exhaustion |
 | `on_fail use <expr>` | — | Use fallback value on exhaustion |
 

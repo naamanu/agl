@@ -20,8 +20,8 @@ enum FilingStatus { single, married_joint, head_of_household };
 
 task classify(status: FilingStatus) -> String {}
 
-pipeline main(status: String) -> String {
-  let r = run classify with { status: status };
+pipeline main() -> String {
+  let r = run classify with { status: "single" };
   return r;
 }
 """
@@ -35,8 +35,8 @@ enum FilingStatus { single, married_joint, head_of_household };
 
 task classify(status: FilingStatus) -> String {}
 
-pipeline main(status: String) -> String {
-  let r = run classify with { status: status };
+pipeline main() -> String {
+  let r = run classify with { status: "single" };
   return r;
 }
 """
@@ -45,10 +45,31 @@ pipeline main(status: String) -> String {
         def classify(args, _agent):
             return f"classified:{args['status']}"
 
-        result = execute_pipeline(program, "main", {"status": "single"}, {"classify": classify})
+        result = execute_pipeline(program, "main", {}, {"classify": classify})
         self.assertEqual(result, "classified:single")
 
     def test_enum_runtime_rejects_invalid_variant(self) -> None:
+        """Handler returning an invalid variant for an enum return type is rejected."""
+        source = """
+enum FilingStatus { single, married_joint, head_of_household };
+
+task classify() -> FilingStatus {}
+
+pipeline main() -> String {
+  let r = run classify with {};
+  return r;
+}
+"""
+        program = self._program(source)
+
+        def classify(_args, _agent):
+            return "invalid_status"
+
+        with self.assertRaisesRegex(ExecutionError, r"not a valid variant"):
+            execute_pipeline(program, "main", {}, {"classify": classify})
+
+    def test_string_param_not_assignable_to_enum_param(self) -> None:
+        """String-typed variables should not pass the checker for enum params."""
         source = """
 enum FilingStatus { single, married_joint, head_of_household };
 
@@ -59,13 +80,8 @@ pipeline main(status: String) -> String {
   return r;
 }
 """
-        program = self._program(source)
-
-        def classify(args, _agent):
-            return "ok"
-
-        with self.assertRaisesRegex(ExecutionError, r"not a valid variant"):
-            execute_pipeline(program, "main", {"status": "invalid_status"}, {"classify": classify})
+        with self.assertRaises(TypeCheckError):
+            self._program(source)
 
     def test_type_alias_resolves_to_underlying_type(self) -> None:
         source = """

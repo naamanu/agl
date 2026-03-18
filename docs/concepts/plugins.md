@@ -37,6 +37,19 @@ def handler(args: dict[str, Any], agent: str | None) -> dict:
 
 The return value must be a dictionary matching the task's declared return type.
 
+### Tool handler signature
+
+Tool handlers receive only the arguments dictionary (no `agent` parameter):
+
+```python
+def handler(args: dict[str, Any]) -> Any:
+    ...
+```
+
+- `args` — dictionary of tool arguments (keys match DSL parameter names)
+
+The return value must match the tool's declared return type.
+
 ## Loading plugins
 
 Use the `--plugin` flag to load a plugin at startup:

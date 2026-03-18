@@ -252,6 +252,19 @@ def default_task_registry(
             next_number = next_value
         return {"next": next_number, "done": next_number <= 0}
 
+    def merge_drafts(args: dict[str, Any], agent: str | None) -> dict[str, Any]:
+        draft_a = args["draft_a"]
+        draft_b = args["draft_b"]
+        wc_a = args["word_count_a"]
+        wc_b = args["word_count_b"]
+        article = draft_a + ("\n\n" + draft_b if draft_b else "")
+        sections = [s for s in [draft_a, draft_b] if s]
+        return {"article": article, "sections": sections, "total_words": wc_a + wc_b}
+
+    def fallback_enrich(args: dict[str, Any], agent: str | None) -> dict[str, Any]:
+        query = args["query"]
+        return {"extra": f"[fallback enrichment for '{query}']"}
+
     registry = {
         "research": research,
         "draft": draft,
@@ -262,6 +275,8 @@ def default_task_registry(
         "flaky_fetch": flaky_fetch,
         "llm_complete": llm_complete,
         "countdown": countdown,
+        "merge_drafts": merge_drafts,
+        "fallback_enrich": fallback_enrich,
     }
 
     for task in program.tasks.values():

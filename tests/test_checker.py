@@ -169,5 +169,74 @@ pipeline p() -> String {
             self._checked(src)
 
 
+    def test_nested_if_rebind_drops_variable_from_merge(self) -> None:
+        """Issue 1: Nested conditionals that rebind a variable to an incompatible
+        type must drop it from the post-merge environment."""
+        src = """
+task number_task(x: String) -> Number {}
+task bool_task() -> Bool {}
+
+pipeline p(x: String) -> String {
+  let c1 = run bool_task with {};
+  let c2 = run bool_task with {};
+  if c1 {
+    if c2 {
+      let x = run number_task with { x: x };
+    }
+  }
+  return x;
+}
+"""
+        with self.assertRaises(TypeCheckError):
+            self._checked(src)
+
+    def test_string_variable_not_assignable_to_enum_param(self) -> None:
+        """Issue 2: A String-typed variable should not be accepted where an
+        enum parameter is expected."""
+        src = """
+enum Color { red, green, blue };
+
+task paint(c: Color) -> String {}
+task fetch_name() -> String {}
+
+pipeline p() -> String {
+  let name = run fetch_name with {};
+  let r = run paint with { c: name };
+  return r;
+}
+"""
+        with self.assertRaises(TypeCheckError):
+            self._checked(src)
+
+    def test_enum_literal_still_works_for_enum_param(self) -> None:
+        """Issue 2 follow-up: String literals matching an enum variant should
+        still be inferred as the enum type and accepted."""
+        src = """
+enum Color { red, green, blue };
+
+task paint(c: Color) -> String {}
+
+pipeline p() -> String {
+  let r = run paint with { c: "red" };
+  return r;
+}
+"""
+        program = self._checked(src)
+        self.assertIsNotNone(program)
+
+    def test_overlapping_enum_variants_rejected(self) -> None:
+        """Issue 3: Two enums sharing a variant name must be rejected."""
+        src = """
+enum Color { active, inactive };
+enum Status { active, pending };
+
+pipeline p() -> String {
+  return "ok";
+}
+"""
+        with self.assertRaises(TypeCheckError):
+            self._checked(src)
+
+
 if __name__ == "__main__":
     unittest.main()

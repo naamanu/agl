@@ -132,7 +132,7 @@ task format_deliverable(
 -- ── pipeline ────────────────────────────────────────────────────────
 
 pipeline tax_optimisation_report(
-  filing_status: String,
+  filing_status: FilingStatus,
   income: Number,
   state: String,
   has_business: Bool

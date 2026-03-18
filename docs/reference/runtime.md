@@ -103,10 +103,11 @@ The runtime walks pipeline statements in order, maintaining an environment map o
 1. Evaluates argument expressions against the current environment.
 2. Looks up the task handler from the registry.
 3. Executes the handler (up to `retries + 1` times on failure).
-4. On exhausted retries:
+4. If a `timeout` clause is present, the handler runs on a daemon thread. If it does not finish within the deadline, `HandlerTimeoutError` is raised and remaining retries are skipped (because the abandoned handler thread is still running in the background).
+5. On exhausted retries:
    - `on_fail abort`: raises `RuntimeError`, pipeline stops.
    - `on_fail use <expr>`: evaluates the fallback expression and binds the result.
-5. Binds the result to the declared variable name.
+6. Binds the result to the declared variable name.
 
 ### Parallel block
 
@@ -170,7 +171,13 @@ When `--output-trace PATH` is passed, an `ExecutionContext` records structured e
 - `retry` — retry attempts with error details
 - `pipeline_call` — pipeline-calls-pipeline events
 
+Each `record_task_start` call returns a unique correlation `id` (e.g. `task:research:1`). All subsequent `retry`, `task_end`, and `task_error` events for that invocation carry the same `id`, making concurrent same-name tasks distinguishable in traces.
+
 After execution, the trace is written as JSON to the specified path.
+
+### Diagnostics
+
+`get_leaked_thread_count()` (from `agentlang.runtime`) returns the number of abandoned handler threads that are still alive. A handler thread is abandoned when its `timeout` deadline is exceeded. This function is useful for monitoring resource leaks in long-running processes.
 
 ## Determinism
 
@@ -203,3 +210,4 @@ Common sources:
 | Unhandled task exception | `Task 'flaky_fetch' failed after 3 attempts. Last error: RuntimeError: ...` |
 | Invalid pipeline inputs | `Pipeline 'p' missing inputs: ['topic']` |
 | Invalid live agent output | `Agent task 'investigate' returned non-JSON output: '...'` |
+| Handler timeout | `Task handler exceeded Xs deadline (handler may still be running in background).` |

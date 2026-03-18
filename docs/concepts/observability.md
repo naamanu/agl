@@ -32,14 +32,16 @@ The trace file contains a JSON object with a `trace` array of events:
       "type": "task_start",
       "task": "research",
       "args": {"topic": "AI safety — technical deep-dive"},
-      "timestamp": 1710400000.123
+      "timestamp": 1710400000.123,
+      "id": "task:research:1"
     },
     {
       "type": "task_end",
       "task": "research",
       "result": {"notes": "...", "sources": ["..."]},
       "duration_s": 0.0042,
-      "timestamp": 1710400000.127
+      "timestamp": 1710400000.127,
+      "id": "task:research:1"
     },
     {
       "type": "parallel_start",
@@ -56,13 +58,15 @@ The trace file contains a JSON object with a `trace` array of events:
       "task": "risky_enrich",
       "attempt": 1,
       "error": "RuntimeError: Enrichment service unavailable",
-      "timestamp": 1710400000.140
+      "timestamp": 1710400000.140,
+      "id": "task:risky_enrich:3"
     },
     {
       "type": "task_error",
       "task": "risky_enrich",
       "error": "RuntimeError: Enrichment service unavailable",
-      "timestamp": 1710400000.141
+      "timestamp": 1710400000.141,
+      "id": "task:risky_enrich:3"
     },
     {
       "type": "pipeline_call",
@@ -78,13 +82,17 @@ The trace file contains a JSON object with a `trace` array of events:
 
 | Type | Fields | Description |
 |---|---|---|
-| `task_start` | `task`, `args`, `timestamp` | Recorded before a task handler is invoked |
-| `task_end` | `task`, `result`, `duration_s`, `timestamp` | Recorded after successful task completion |
-| `task_error` | `task`, `error`, `timestamp` | Recorded when a task handler raises an exception |
+| `task_start` | `task`, `args`, `timestamp`, `id` | Recorded before a task handler is invoked |
+| `task_end` | `task`, `result`, `duration_s`, `timestamp`, `id` | Recorded after successful task completion |
+| `task_error` | `task`, `error`, `timestamp`, `id` | Recorded when a task handler raises an exception |
 | `parallel_start` | `branch_count`, `timestamp` | Recorded at the start of a parallel block |
 | `parallel_end` | `branch_count`, `timestamp` | Recorded after all parallel branches complete |
-| `retry` | `task`, `attempt`, `error`, `timestamp` | Recorded on each retry attempt |
+| `retry` | `task`, `attempt`, `error`, `timestamp`, `id` | Recorded on each retry attempt |
 | `pipeline_call` | `pipeline`, `args`, `timestamp` | Recorded when one pipeline calls another |
+
+## Correlation IDs
+
+Each call to `record_task_start` returns a unique correlation key (e.g. `task:research:1`). All subsequent `retry`, `task_end`, and `task_error` events for that invocation carry the same `id` field. This makes concurrent same-name tasks distinguishable — for example, two parallel branches both running `research` will have different `id` values, so their events can be paired unambiguously.
 
 ## Use cases
 

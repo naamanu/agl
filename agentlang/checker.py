@@ -67,9 +67,17 @@ def _check_tools(program: Program) -> None:
 
 
 def _check_enums(program: Program) -> None:
+    seen_variants: dict[str, str] = {}  # variant -> enum name
     for enum_def in program.enum_types.values():
         if len(enum_def.variants) == 0:
             raise TypeCheckError(f"Enum '{enum_def.name}' must have at least one variant.")
+        for variant in enum_def.variants:
+            if variant in seen_variants:
+                raise TypeCheckError(
+                    f"Enum variant '{variant}' in '{enum_def.name}' conflicts with "
+                    f"enum '{seen_variants[variant]}'. Cross-enum variant names must be unique."
+                )
+            seen_variants[variant] = enum_def.name
 
 
 def _check_test_block(program: Program, test_block) -> None:
@@ -271,15 +279,13 @@ def _common_bindings(
     then_env: dict[str, TypeExpr],
     else_env: dict[str, TypeExpr],
 ) -> dict[str, TypeExpr]:
-    merged: dict[str, TypeExpr] = dict(base_env)
+    merged: dict[str, TypeExpr] = {}
     shared_names = set(then_env) & set(else_env)
     for name in shared_names:
         then_type = then_env[name]
         else_type = else_env[name]
         if _is_assignable(then_type, else_type) and _is_assignable(else_type, then_type):
             merged[name] = then_type
-        elif name in base_env:
-            del merged[name]
     return merged
 
 
@@ -490,10 +496,8 @@ def _is_assignable(actual: TypeExpr, expected: TypeExpr) -> bool:
             for field in expected.fields
         )
 
-    # EnumType is assignable to String, and String is assignable to EnumType
+    # EnumType is assignable to String (safe widening), but not String to EnumType
     if isinstance(actual, EnumType) and isinstance(expected, PrimitiveType) and expected.name == "String":
-        return True
-    if isinstance(actual, PrimitiveType) and actual.name == "String" and isinstance(expected, EnumType):
         return True
     if isinstance(actual, EnumType) and isinstance(expected, EnumType):
         return actual.name == expected.name

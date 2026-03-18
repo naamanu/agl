@@ -313,6 +313,8 @@ pipeline p() -> String {
         self.assertEqual(result, "red,green")
 
     def test_invalid_enum_in_list_arg_rejected(self) -> None:
+        """String param is no longer assignable to Enum, so test that the checker
+        rejects passing a String-typed variable into a List[Enum] param."""
         src = """
 enum Color { red, green, blue };
 
@@ -323,13 +325,8 @@ pipeline p(c: String) -> String {
   return r;
 }
 """
-        program = self._program(src)
-
-        def paint(args, _agent):
-            return ",".join(args["colors"])
-
-        with self.assertRaisesRegex(ExecutionError, r"not a valid variant"):
-            execute_pipeline(program, "p", {"c": "purple"}, {"paint": paint})
+        with self.assertRaises(TypeCheckError):
+            self._program(src)
 
     def test_enum_in_option_result_validated(self) -> None:
         """Enum inside Option in a task result should be validated."""
@@ -411,6 +408,8 @@ pipeline p() -> String {
         self.assertEqual(result, "1")
 
     def test_invalid_enum_in_nested_obj_in_list_rejected(self) -> None:
+        """String param is no longer assignable to Enum, so test that the checker
+        rejects passing a String-typed variable into a nested Obj{prio: Enum} param."""
         src = """
 enum Priority { low, medium, high };
 
@@ -421,13 +420,8 @@ pipeline p(prio: String) -> String {
   return r;
 }
 """
-        program = self._program(src)
-
-        def process(args, _agent):
-            return str(len(args["items"]))
-
-        with self.assertRaisesRegex(ExecutionError, r"not a valid variant"):
-            execute_pipeline(program, "p", {"prio": "critical"}, {"process": process})
+        with self.assertRaises(TypeCheckError):
+            self._program(src)
 
     def test_enum_in_result_list_validated(self) -> None:
         src = """

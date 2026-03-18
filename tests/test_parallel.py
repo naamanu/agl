@@ -126,5 +126,28 @@ pipeline p() -> String {
         self.assertEqual(result, "hello")
 
 
+    def test_parallel_timeout_raises_handler_timeout(self) -> None:
+        """Issue 5: Parallel branch timeout should produce HandlerTimeoutError
+        (via _invoke_handler) rather than a raw FuturesTimeoutError."""
+        src = """
+task slow() -> String {}
+
+pipeline p() -> String {
+  parallel {
+    let a = run slow with {} timeout 0.1;
+  } join;
+  return a;
+}
+"""
+        program = self._program(src)
+
+        def slow(_args, _agent):
+            time.sleep(5)
+            return "done"
+
+        with self.assertRaisesRegex(ExecutionError, r"(exceeded.*deadline|timed out)"):
+            execute_pipeline(program, "p", {}, {"slow": slow})
+
+
 if __name__ == "__main__":
     unittest.main()

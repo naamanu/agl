@@ -88,9 +88,11 @@ For a chain \(x.f_1{\cdots}f_n\), this rule is applied \(n\) times in sequence s
 
 $$\dfrac{\Gamma \vdash e_1 : \tau \quad \Gamma \vdash e_2 : \tau \quad \tau \in \{\texttt{String},\ \texttt{Number}\}}{\Gamma \vdash e_1 + e_2 : \tau} \quad \text{(addition)}$$
 
-$$\dfrac{\Gamma \vdash e_1 : \tau \quad \Gamma \vdash e_2 : \tau}{\Gamma \vdash e_1\ {==}\ e_2 : \texttt{Bool}} \quad \text{(equality)}$$
+$$\dfrac{\Gamma \vdash e_1 : \tau_1 \quad \Gamma \vdash e_2 : \tau_2 \quad \text{comparable}(\tau_1, \tau_2)}{\Gamma \vdash e_1\ {==}\ e_2 : \texttt{Bool}} \quad \text{(equality)}$$
 
-$$\dfrac{\Gamma \vdash e_1 : \tau \quad \Gamma \vdash e_2 : \tau}{\Gamma \vdash e_1\ {!=}\ e_2 : \texttt{Bool}} \quad \text{(inequality)}$$
+$$\dfrac{\Gamma \vdash e_1 : \tau_1 \quad \Gamma \vdash e_2 : \tau_2 \quad \text{comparable}(\tau_1, \tau_2)}{\Gamma \vdash e_1\ {!=}\ e_2 : \texttt{Bool}} \quad \text{(inequality)}$$
+
+where \(\text{comparable}(\tau_1, \tau_2)\) holds when \(\tau_1\) and \(\tau_2\) are mutually assignable, or when one is \(\texttt{Null}\) and the other is \(\texttt{Option}[\tau]\), or when one is \(\texttt{Enum}[E]\) and the other is \(\texttt{String}\).
 
 $$\dfrac{\forall\, i\colon\ \Gamma \vdash e_i : \tau_i}{\Gamma \vdash \{k_i{:}e_i\} : \texttt{Obj}\{k_i{:}\tau_i\}} \quad \text{(object literal)}$$
 
@@ -203,12 +205,30 @@ The same argument-matching and return-type rules apply as for task targets.
 ### Enum typing
 
 $$\dfrac{
-  v \in \text{variants}(\mathcal{N}(E)) \qquad \tau_{param} = \texttt{Enum}[E] \text{ or } \tau_{param} = \texttt{String}
+  v \in \text{variants}(\mathcal{N}(E))
 }{
-  \Gamma \vdash v : \tau_{param}
+  \Gamma \vdash v : \texttt{Enum}[E]
 }$$
 
-Enum values are string literals validated against the declared variant set. They are assignable to both their enum type and `String`.
+Enum literals are string constants validated against the declared variant set. A string literal that matches a variant is inferred as the corresponding `Enum[E]` type. Enum types are assignable to `String` (safe widening via the subtyping relation), but `String` is **not** assignable to `Enum[E]` — this ensures that only known-valid variants pass the static checker. Enum variant names must be globally unique across all enum declarations.
+
+### Subtyping
+
+AgentLang uses a structural subtyping relation \(\tau_a <: \tau_e\) ("actual is assignable to expected"):
+
+$$\dfrac{}{\tau <: \tau} \quad \text{(reflexivity)}$$
+
+$$\dfrac{}{\texttt{Enum}[E] <: \texttt{String}} \quad \text{(enum widening)}$$
+
+$$\dfrac{\tau_a <: \tau_e}{\texttt{List}[\tau_a] <: \texttt{List}[\tau_e]} \quad \text{(list covariance)}$$
+
+$$\dfrac{\text{dom}(\sigma_e) \subseteq \text{dom}(\sigma_a) \qquad \forall\, f \in \text{dom}(\sigma_e)\colon\ \sigma_a(f) <: \sigma_e(f)}{\texttt{Obj}\{\sigma_a\} <: \texttt{Obj}\{\sigma_e\}} \quad \text{(width + depth subtyping)}$$
+
+$$\dfrac{}{\texttt{Null} <: \texttt{Option}[\tau]} \quad \text{(null assignable to option)}$$
+
+$$\dfrac{\tau_a <: \tau_e}{\texttt{Option}[\tau_a] <: \texttt{Option}[\tau_e]} \quad \text{(option covariance)}$$
+
+**Note on covariance:** List and Obj subtyping are covariant. This is classically unsound for mutable containers, but AgentLang has no mutation operators (no assignment, no list append, no field update). The runtime's `deepcopy` at handler boundaries prevents handler-side mutation from leaking. If mutation is ever added, these rules must be revised.
 
 ### Test block typing
 
@@ -309,13 +329,29 @@ $$\langle [\texttt{while}\ e_c\ \{s^*\}] \cdot S,\ E \rangle \;\longrightarrow\;
 
 $$\langle [\texttt{while}\ e_c\ \{s^*\}] \cdot S,\ E \rangle \;\longrightarrow\; \langle S,\ E \rangle \quad \text{when}\ \mathcal{E}\llbracket e_c \rrbracket_E = \textit{false}$$
 
-**Break / Continue:**
+**Break:**
 
-`break` exits the nearest enclosing loop. `continue` skips the remaining statements in the current iteration and re-evaluates the loop condition.
+$$\langle [\texttt{break}] \cdot S,\ E \rangle \;\longrightarrow\; \langle S_{post\text{-}loop},\ E \rangle$$
 
-**If-let:**
+where \(S_{post\text{-}loop}\) is the statement stream after removing the enclosing `while` and its remaining body. Equivalently, `break` raises a control-flow signal that unwinds to the nearest enclosing loop, which then terminates.
 
-If \(\mathcal{E}\llbracket e_o \rrbracket_E = v \neq \texttt{null}\), execute the `then` branch with \(x\) bound to \(v\). If it is `null`, execute the `else` branch if present, otherwise skip.
+**Continue:**
+
+$$\langle [\texttt{continue}] \cdot S,\ E \rangle \;\longrightarrow\; \langle [\texttt{while}\ e_c\ \{s^*\}] \cdot S_{post\text{-}loop},\ E \rangle$$
+
+`continue` raises a control-flow signal that skips the remaining statements in the current iteration and re-evaluates the loop condition.
+
+**If-let (some):**
+
+$$\langle [\texttt{if let}\ x = e_o\ \{s_{then}^*\}\ \texttt{else}\ \{s_{else}^*\}] \cdot S,\ E \rangle \;\longrightarrow\; \langle s_{then}^* \cdot S,\ E[x \mapsto v] \rangle \quad \text{when}\ \mathcal{E}\llbracket e_o \rrbracket_E = v \neq \texttt{null}$$
+
+The binding \(x\) is scoped to the `then` branch only. After the branch completes, \(x\) is removed from the environment (or restored to its prior value if it existed before the `if let`).
+
+**If-let (none):**
+
+$$\langle [\texttt{if let}\ x = e_o\ \{s_{then}^*\}\ \texttt{else}\ \{s_{else}^*\}] \cdot S,\ E \rangle \;\longrightarrow\; \langle s_{else}^* \cdot S,\ E \rangle \quad \text{when}\ \mathcal{E}\llbracket e_o \rrbracket_E = \texttt{null}$$
+
+When `else` is absent and the value is `null`, execution skips to the next statement.
 
 **Try/catch (success):**
 
@@ -327,7 +363,15 @@ When the try block completes without error, execution continues after the try/ca
 
 $$\langle [\texttt{try}\ \{s_{try}^*\}\ \texttt{catch}\ x_{err}\ \{s_{catch}^*\}] \cdot S,\ E \rangle \;\xrightarrow{\text{fail}(m)}\; \langle s_{catch}^* \cdot S,\ E[x_{err} \mapsto m] \rangle$$
 
-When a statement in the try block raises error with message \(m\), execution jumps to the catch block with the error variable bound as a `String`.
+When a statement in the try block raises an `ExecutionError` with message \(m\), execution jumps to the catch block with the error variable bound as a `String`.
+
+**Try/catch (control-flow passthrough):**
+
+Control-flow signals (`return`, `break`, `continue`) raised inside a `try` block are **not** caught — they propagate through the try/catch boundary as if it were not present. Only `ExecutionError` exceptions (task failures, assertion failures, etc.) are caught. This ensures that `return` inside `try` exits the enclosing pipeline, and `break`/`continue` inside `try` affect the enclosing loop.
+
+**Timeout (non-retryable):**
+
+When a task handler exceeds its `timeout` deadline, a `HandlerTimeoutError` (subclass of `ExecutionError`) is raised. Unlike other execution errors, timeout errors are **not retryable** — the retry loop immediately falls through to the failure policy. This is because the timed-out handler thread may still be running in the background, and retrying would risk overlapping side-effects.
 
 **Assert (pass):**
 

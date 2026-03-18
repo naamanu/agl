@@ -239,9 +239,9 @@ def _execute_block(
         if isinstance(stmt, TryCatchStmt):
             try:
                 _execute_block(program, stmt.try_body, env, task_registry, max_workers, ctx=ctx)
-            except (ExecutionError, Exception) as exc:
-                if isinstance(exc, (_PipelineReturned, _LoopBreak, _LoopContinue)):
-                    raise
+            except (_PipelineReturned, _LoopBreak, _LoopContinue):
+                raise
+            except ExecutionError as exc:
                 env[stmt.error_var] = str(exc)
                 _execute_block(program, stmt.catch_body, env, task_registry, max_workers, ctx=ctx)
             continue
@@ -287,7 +287,11 @@ def _execute_parallel(
             future_pairs.append((branch.target, branch.timeout, future))
         for target, timeout, future in future_pairs:
             try:
-                env[target] = future.result(timeout=timeout)
+                # Use timeout + 1s buffer since _invoke_handler already enforces
+                # the deadline internally. This avoids a race where FuturesTimeoutError
+                # fires before HandlerTimeoutError, bypassing leaked-thread tracking.
+                join_timeout = timeout + 1.0 if timeout is not None else None
+                env[target] = future.result(timeout=join_timeout)
             except FuturesTimeoutError:
                 raise ExecutionError(f"Parallel branch '{target}' timed out after {timeout}s.")
 

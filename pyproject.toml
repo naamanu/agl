@@ -9,6 +9,6 @@ dependencies = []
 [project.optional-dependencies]
 docs = [
   "mkdocs>=1.5,<2.0",
-  "mkdocs-terminal",
+  "mkdocs-material",
   "pymdown-extensions>=10.7",
 ]

@@ -1,0 +1,20 @@
+tool web_search(query: String) -> List[Obj{title: String, url: String, snippet: String}] {}
+
+agent researcher {
+  model: "gpt-4.1"
+  , tools: [web_search]
+}
+
+agent writer {
+  model: "gpt-4.1-mini"
+  , tools: [web_search]
+}
+
+task find_news(topic: String) -> Obj{stories: List[Obj{title: String, summary: String, url: String}]} by agent {}
+task write_newsletter(topic: String, stories: List[Obj{title: String, summary: String, url: String}]) -> Obj{newsletter: String} by agent {}
+
+workflow weekly_newsletter(topic: String) -> String {
+  stage research = researcher does find_news(topic);
+  stage draft = writer does write_newsletter(topic, research.stories);
+  return draft.newsletter;
+}

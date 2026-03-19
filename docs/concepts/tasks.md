@@ -43,13 +43,13 @@ This separation between signature and behavior is intentional:
 
 The following tasks are available out of the box:
 
-| Task name | Mock behavior | Live behavior |
+| Task name | Mock behavior | Live/Anthropic behavior |
 |---|---|---|
-| `research` | Returns placeholder notes | Calls OpenAI with optional web search |
-| `draft` | Returns placeholder article | Calls OpenAI to write a draft |
-| `compare` | Returns placeholder decision | Calls OpenAI to compare two notes |
-| `respond` | Returns placeholder reply | Calls OpenAI to generate a reply |
-| `llm_complete` | Echoes the prompt | Calls OpenAI with the given prompt |
+| `research` | Returns placeholder notes | Calls LLM with optional web search |
+| `draft` | Returns placeholder article | Calls LLM to write a draft |
+| `compare` | Returns placeholder decision | Calls LLM to compare two notes |
+| `respond` | Returns placeholder reply | Calls LLM to generate a reply |
+| `llm_complete` | Echoes the prompt | Calls LLM with the given prompt |
 | `extract_intent` | Returns fixed `intent`/`urgency` | Deterministic local handler |
 | `route` | Returns routing decision | Deterministic local handler |
 | `flaky_fetch` | Fails N times, then succeeds | Deterministic local handler |
@@ -65,10 +65,10 @@ Agent tasks are declared in the DSL and executed by the model bound in the run s
 task investigate(topic: String) -> Obj{summary: String, sources: List[String]} by agent {}
 ```
 
-- They may use the bound agent's declared tools in live mode.
+- They may use the bound agent's declared tools in live/anthropic mode.
 - They must still return values that match the declared DSL return type.
 - In mock mode, AgentLang returns deterministic placeholder values that satisfy the declared type.
-- In live mode, the final model output is decoded as JSON and validated against the task's declared return type.
+- In live/anthropic mode, the final model output is decoded as JSON and validated against the task's declared return type.
 
 ## Adding a new task
 

@@ -134,7 +134,7 @@ Each line at the `>` prompt takes the form `<source_file> <pipeline_or_workflow_
 
 ## 7. Trace a live run
 
-When debugging live agent behavior, enable tracing:
+When debugging live agent behavior, enable tracing. This works with both `--adapter live` (OpenAI) and `--adapter anthropic` (Claude):
 
 ```bash
 python main.py examples/incident_runbook.agent respond_to_incident \
@@ -143,10 +143,19 @@ python main.py examples/incident_runbook.agent respond_to_incident \
   --input '{"incident":"database failover drill"}'
 ```
 
+Or with Anthropic/Claude:
+
+```bash
+python main.py examples/incident_runbook.agent respond_to_incident \
+  --adapter anthropic \
+  --trace-live \
+  --input '{"incident":"database failover drill"}'
+```
+
 Trace lines are printed to `stderr` and show:
 
 - agent task start/end
-- OpenAI request mode
+- LLM request mode (OpenAI or Anthropic)
 - tool calls and tool results
 - final structured task outputs
 
@@ -154,4 +163,4 @@ Trace lines are printed to `stderr` and show:
 
 - **Understand the language** → [Agents](../concepts/agents.md), [Tasks](../concepts/tasks.md), [Workflows](../concepts/workflows.md), [Pipelines](../concepts/pipelines.md)
 - **Write your own pipeline** → [Your First Pipeline](first-pipeline.md)
-- **Connect to OpenAI** → [Adapters](../reference/adapters.md)
+- **Connect to OpenAI or Anthropic** → [Adapters](../reference/adapters.md)

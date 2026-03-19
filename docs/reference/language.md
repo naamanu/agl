@@ -87,7 +87,7 @@ agent <name> {
 | `model` | No | Model name string literal (defaults to `None`) |
 | `tools` | Yes | List of tool identifiers (may be empty `[]`) |
 
-When `model` is omitted, the runtime uses the `AGENTLANG_DEFAULT_MODEL` environment variable (live mode) or the default mock handler.
+When `model` is omitted, the runtime uses the `AGENTLANG_DEFAULT_MODEL` environment variable (live/anthropic mode) or the default mock handler. In anthropic mode, OpenAI model names are automatically mapped to Claude equivalents.
 
 ```agentlang
 -- with explicit model

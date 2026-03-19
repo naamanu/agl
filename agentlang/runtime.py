@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import logging
 import queue as _queue
 import random
 import threading
@@ -8,6 +9,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass
 from typing import Any, Callable
+
+logger = logging.getLogger(__name__)
 
 from .ast import (
     AssertStmt,
@@ -343,12 +346,19 @@ def _execute_run_stmt(
     # Validate enum values in args at runtime
     _validate_enum_args(program, task, bound_args)
 
+    agent_str = f" [agent: {stmt.agent_name}]" if stmt.agent_name else ""
+    logger.info("▶ Executing task '%s'%s...", stmt.task_name, agent_str)
+
     ctx_key = None
     if ctx is not None:
         ctx_key = ctx.record_task_start(stmt.task_name, bound_args)
 
     for attempt in range(max_attempts):
         if attempt > 0:
+            logger.warning(
+                "  ↻ Retrying task '%s' (attempt %d/%d)...",
+                stmt.task_name, attempt + 1, max_attempts
+            )
             delay = min(2 ** attempt * 0.1, 5.0)
             delay *= 0.5 + random.random()  # noqa: S311 - jitter for retry backoff
             time.sleep(delay)

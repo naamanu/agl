@@ -44,12 +44,13 @@ def main() -> None:
     )
     parser.add_argument(
         "--adapter",
-        choices=["mock", "live"],
+        choices=["mock", "live", "anthropic"],
         default=None,
         help=(
             "Task adapter mode. "
             "mock = deterministic local handlers, "
-            "live = OpenAI + real tool adapters."
+            "live = OpenAI + real tool adapters, "
+            "anthropic = Anthropic/Claude + real tool adapters."
         ),
     )
     parser.add_argument(
@@ -176,7 +177,7 @@ def _repl(argv: list[str]) -> None:
     parser = argparse.ArgumentParser(prog="main.py repl")
     parser.add_argument(
         "--adapter",
-        choices=["mock", "live"],
+        choices=["mock", "live", "anthropic"],
         default=None,
         help="Task adapter mode (default: mock).",
     )

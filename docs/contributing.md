@@ -48,6 +48,7 @@ agentlang/
   plugins.py      -- PluginRegistry for extensibility
   adapters/
     openai.py     -- OpenAI Responses API client
+    anthropic.py  -- Anthropic Messages API client
     tools.py      -- web search and other tool adapters
 examples/
   *.agent         -- runnable example programs
@@ -97,7 +98,7 @@ Adding a new syntax feature touches every layer. Update all of these:
 
 ## Adapter changes
 
-The OpenAI adapter lives in `agentlang/adapters/openai.py`. Tool adapters (web search) are in `agentlang/adapters/tools.py`.
+The OpenAI adapter lives in `agentlang/adapters/openai.py` and the Anthropic adapter in `agentlang/adapters/anthropic.py`. Tool adapters (web search) are in `agentlang/adapters/tools.py`.
 
 Guidelines:
 

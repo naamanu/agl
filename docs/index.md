@@ -2,7 +2,7 @@
 
 **A tiny, self-contained DSL for agentic workflows.**
 
-Define agents, typed tasks, declarative workflows, and explicit pipelines — then run them with deterministic mock adapters or live OpenAI backends. No framework. No magic. Everything compiles from source to execution in Python.
+Define agents, typed tasks, declarative workflows, and explicit pipelines — then run them with deterministic mock adapters or live LLM backends (OpenAI or Anthropic/Claude). No framework. No magic. Everything compiles from source to execution in Python.
 
 ```agentlang
 tool web_search(query: String) -> List[Obj{title: String, url: String, snippet: String}] {}
@@ -50,7 +50,7 @@ Most "agent frameworks" hide the execution model behind layers of abstraction. A
   | Parallel execution | Built-in `parallel { } join` |
   | Looping | `while`, `break`, `continue` |
   | Retry / fallback | First-class syntax |
-  | LLM backend | Optional (`--adapter live`) |
+  | LLM backend | Optional (`--adapter live` or `--adapter anthropic`) |
 
 ---
 
@@ -74,7 +74,7 @@ Most "agent frameworks" hide the execution model behind layers of abstraction. A
 
     [:octicons-arrow-right-24: Concepts](concepts/agents.md)
 
--   **Connect to OpenAI**
+-   **Connect to OpenAI or Anthropic**
 
     ---
 

@@ -8,6 +8,8 @@ from threading import Lock
 from typing import Any, Callable
 
 from .adapters import (
+    AnthropicAdapterError,
+    AnthropicMessagesClient,
     OpenAIAdapterError,
     OpenAIResponsesClient,
     ToolAdapterError,
@@ -20,6 +22,17 @@ from .runtime import ExecutionError, execute_tool
 
 TaskHandler = Callable[[dict[str, Any], str | None], Any]
 ToolHandler = Callable[[dict[str, Any]], Any]
+
+LLMClient = OpenAIResponsesClient | AnthropicMessagesClient
+
+_OPENAI_TO_ANTHROPIC_MODELS: dict[str, str] = {
+    "gpt-4.1": "claude-sonnet-4-20250514",
+    "gpt-4.1-mini": "claude-haiku-4-5-20251001",
+    "gpt-4o": "claude-sonnet-4-20250514",
+    "gpt-4o-mini": "claude-haiku-4-5-20251001",
+}
+
+_LIVE_MODES = frozenset({"live", "anthropic"})
 
 _flaky_attempts: dict[str, int] = {}
 _flaky_attempts_lock = Lock()
@@ -50,7 +63,7 @@ def default_task_registry(
     # Merge plugin-provided tool handlers (plugin takes precedence over builtins)
     if extra_tool_handlers:
         tool_registry.update(extra_tool_handlers)
-    client = _build_openai_client(config)
+    client = _build_llm_client(config)
 
     def resolve_agent(agent_name: str | None) -> AgentDef | None:
         if agent_name is None:
@@ -59,9 +72,9 @@ def default_task_registry(
 
     def research(args: dict[str, Any], agent: str | None) -> dict[str, str]:
         topic = str(args["topic"])
-        if config.mode == "live":
+        if config.mode in _LIVE_MODES:
             agent_def = resolve_agent(agent)
-            model = _resolve_model(agent_def, config.default_model)
+            model = _resolve_model(agent_def, config.default_model, config)
             trace = _start_live_trace(
                 config,
                 task_name="research",
@@ -114,9 +127,9 @@ def default_task_registry(
 
     def draft(args: dict[str, Any], agent: str | None) -> dict[str, str]:
         notes = str(args["notes"])
-        if config.mode == "live":
+        if config.mode in _LIVE_MODES:
             agent_def = resolve_agent(agent)
-            model = _resolve_model(agent_def, config.default_model)
+            model = _resolve_model(agent_def, config.default_model, config)
             trace = _start_live_trace(
                 config,
                 task_name="draft",
@@ -140,9 +153,9 @@ def default_task_registry(
     def compare(args: dict[str, Any], agent: str | None) -> dict[str, str]:
         note_a = str(args["note_a"])
         note_b = str(args["note_b"])
-        if config.mode == "live":
+        if config.mode in _LIVE_MODES:
             agent_def = resolve_agent(agent)
-            model = _resolve_model(agent_def, config.default_model)
+            model = _resolve_model(agent_def, config.default_model, config)
             trace = _start_live_trace(
                 config,
                 task_name="compare",
@@ -182,9 +195,9 @@ def default_task_registry(
     def respond(args: dict[str, Any], agent: str | None) -> dict[str, str]:
         intent = str(args["intent"])
         queue = str(args["queue"])
-        if config.mode == "live":
+        if config.mode in _LIVE_MODES:
             agent_def = resolve_agent(agent)
-            model = _resolve_model(agent_def, config.default_model)
+            model = _resolve_model(agent_def, config.default_model, config)
             trace = _start_live_trace(
                 config,
                 task_name="respond",
@@ -225,11 +238,11 @@ def default_task_registry(
 
     def llm_complete(args: dict[str, Any], agent: str | None) -> dict[str, str]:
         prompt = str(args["prompt"])
-        if config.mode != "live":
+        if config.mode not in _LIVE_MODES:
             who = agent or "default-agent"
             return {"text": f"[{who}] {prompt}"}
         agent_def = resolve_agent(agent)
-        model = _resolve_model(agent_def, config.default_model)
+        model = _resolve_model(agent_def, config.default_model, config)
         trace = _start_live_trace(
             config,
             task_name="llm_complete",
@@ -309,7 +322,7 @@ def default_tool_registry(
 
     def fetch_url(args: dict[str, Any]) -> dict[str, str]:
         url = str(args["url"])
-        if config.mode != "live":
+        if config.mode not in _LIVE_MODES:
             return {"content": f"[fetch_url] {url}"}
         return {
             "content": _run_fetch_url(
@@ -330,8 +343,8 @@ def _resolve_config(
     trace_live: bool | None = None,
 ) -> RuntimeAdapterConfig:
     mode = (adapter_mode or os.getenv("AGENTLANG_ADAPTER", "mock")).strip().lower()
-    if mode not in {"mock", "live"}:
-        raise ExecutionError("Adapter mode must be one of: mock, live.")
+    if mode not in {"mock", "live", "anthropic"}:
+        raise ExecutionError("Adapter mode must be one of: mock, live, anthropic.")
 
     default_model = os.getenv("AGENTLANG_DEFAULT_MODEL", "gpt-4.1-mini")
     web_max_results = int(os.getenv("AGENTLANG_WEB_RESULTS", "5"))
@@ -347,26 +360,39 @@ def _resolve_config(
     )
 
 
-def _build_openai_client(config: RuntimeAdapterConfig) -> OpenAIResponsesClient | None:
-    if config.mode != "live":
-        return None
+def _build_llm_client(config: RuntimeAdapterConfig) -> LLMClient | None:
+    if config.mode == "live":
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise ExecutionError("OPENAI_API_KEY is required when adapter mode is 'live'.")
+        base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+        return OpenAIResponsesClient(
+            api_key=api_key,
+            base_url=base_url,
+            timeout_s=config.http_timeout_s,
+        )
 
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        raise ExecutionError("OPENAI_API_KEY is required when adapter mode is 'live'.")
+    if config.mode == "anthropic":
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if not api_key:
+            raise ExecutionError("ANTHROPIC_API_KEY is required when adapter mode is 'anthropic'.")
+        base_url = os.getenv("ANTHROPIC_BASE_URL", "https://api.anthropic.com")
+        return AnthropicMessagesClient(
+            api_key=api_key,
+            base_url=base_url,
+            timeout_s=config.http_timeout_s,
+        )
 
-    base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
-    return OpenAIResponsesClient(
-        api_key=api_key,
-        base_url=base_url,
-        timeout_s=config.http_timeout_s,
-    )
+    return None
 
 
-def _resolve_model(agent_def: AgentDef | None, default_model: str) -> str:
-    if agent_def is None or agent_def.model is None:
-        return default_model
-    return agent_def.model
+def _resolve_model(agent_def: AgentDef | None, default_model: str, config: RuntimeAdapterConfig | None = None) -> str:
+    model = default_model if (agent_def is None or agent_def.model is None) else agent_def.model
+    if config is not None and config.mode == "anthropic":
+        if model.startswith("claude-"):
+            return model
+        return _OPENAI_TO_ANTHROPIC_MODELS.get(model, model)
+    return model
 
 
 def _run_web_search(query: str, *, max_results: int, timeout_s: float) -> list[dict[str, str]]:
@@ -384,7 +410,7 @@ def _run_fetch_url(url: str, *, timeout_s: float) -> str:
 
 
 def _complete_live(
-    client: OpenAIResponsesClient | None,
+    client: LLMClient | None,
     *,
     model: str,
     prompt: str,
@@ -393,7 +419,7 @@ def _complete_live(
     trace: Callable[[str], None] | None = None,
 ) -> str:
     if client is None:
-        raise ExecutionError("OpenAI client was not initialized.")
+        raise ExecutionError("LLM client was not initialized.")
     try:
         return client.complete(
             model=model,
@@ -402,12 +428,12 @@ def _complete_live(
             max_output_tokens=max_output_tokens,
             trace=trace,
         )
-    except OpenAIAdapterError as exc:
+    except (OpenAIAdapterError, AnthropicAdapterError) as exc:
         raise ExecutionError(f"LLM call failed: {exc}") from exc
 
 
 def _complete_live_with_tools(
-    client: OpenAIResponsesClient | None,
+    client: LLMClient | None,
     *,
     model: str,
     prompt: str,
@@ -418,7 +444,7 @@ def _complete_live_with_tools(
     trace: Callable[[str], None] | None = None,
 ) -> str:
     if client is None:
-        raise ExecutionError("OpenAI client was not initialized.")
+        raise ExecutionError("LLM client was not initialized.")
     try:
         return client.complete_with_tools(
             model=model,
@@ -429,7 +455,7 @@ def _complete_live_with_tools(
             max_output_tokens=max_output_tokens,
             trace=trace,
         )
-    except OpenAIAdapterError as exc:
+    except (OpenAIAdapterError, AnthropicAdapterError) as exc:
         raise ExecutionError(f"LLM call failed: {exc}") from exc
 
 
@@ -439,7 +465,7 @@ def _make_agent_task_handler(
     *,
     config: RuntimeAdapterConfig,
     resolve_agent: Callable[[str | None], AgentDef | None],
-    client: OpenAIResponsesClient | None,
+    client: LLMClient | None,
     tool_registry: dict[str, ToolHandler],
 ) -> TaskHandler:
     def handler(args: dict[str, Any], agent: str | None) -> Any:
@@ -448,7 +474,7 @@ def _make_agent_task_handler(
                 f"Agent task '{task.name}' requires a bound agent at runtime."
             )
 
-        if config.mode != "live":
+        if config.mode not in _LIVE_MODES:
             return _mock_value_for_type(
                 task.return_type,
                 label=f"{agent}:{task.name}",
@@ -456,7 +482,7 @@ def _make_agent_task_handler(
             )
 
         agent_def = resolve_agent(agent)
-        model = _resolve_model(agent_def, config.default_model)
+        model = _resolve_model(agent_def, config.default_model, config)
         tools = _agent_tool_definitions(program, agent_def)
         trace = _start_live_trace(
             config,
@@ -509,13 +535,30 @@ def _make_agent_task_handler(
             )
         trace(f"raw={_preview_value(raw)}")
 
+        raw = raw.strip()
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
+        if raw.endswith("```"):
+            raw = raw[:-3].strip()
+
         try:
             result = json.loads(raw)
-        except json.JSONDecodeError as exc:
-            trace(f"error=non-json-output raw={_preview_value(raw)}")
-            raise ExecutionError(
-                f"Agent task '{task.name}' returned non-JSON output: {raw!r}"
-            ) from exc
+        except json.JSONDecodeError:
+            start = raw.find("{")
+            end = raw.rfind("}")
+            if start != -1 and end != -1 and end > start:
+                try:
+                    result = json.loads(raw[start:end + 1])
+                except json.JSONDecodeError as exc:
+                    trace(f"error=non-json-output raw={_preview_value(raw)}")
+                    raise ExecutionError(
+                        f"Agent task '{task.name}' returned non-JSON output: {raw!r}"
+                    ) from exc
+            else:
+                trace(f"error=non-json-output raw={_preview_value(raw)}")
+                raise ExecutionError(
+                    f"Agent task '{task.name}' returned non-JSON output: {raw!r}"
+                )
         trace(f"result={_preview_value(result)}")
         return result
 
@@ -570,7 +613,7 @@ def _trace_tool_executor(
 
 
 def _trace(config: RuntimeAdapterConfig, message: str) -> None:
-    if config.mode != "live" or not config.trace_live:
+    if config.mode not in _LIVE_MODES or not config.trace_live:
         return
     print(f"[trace] {message}", file=sys.stderr)
 

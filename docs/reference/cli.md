@@ -21,9 +21,9 @@ python main.py <source> <pipeline> [options]
 |---|---|---|
 | `--input '<json>'` | `{}` | JSON object mapped to pipeline input params |
 | `--workers N` | `8` | Max threads for `parallel` blocks. Must be `>= 1`. |
-| `--adapter mock\|live` | `mock` | Task execution mode |
+| `--adapter mock\|live\|anthropic` | `mock` | Task execution mode |
 | `--lower` | off | Print the lowered pipeline IR for the selected pipeline or workflow and exit |
-| `--trace-live` | off | Emit live model/tool tracing to `stderr` when running with `--adapter live` |
+| `--trace-live` | off | Emit live model/tool tracing to `stderr` when running with `--adapter live` or `--adapter anthropic` |
 | `--output-trace PATH` | off | Write a structured JSON execution trace to `PATH` after execution |
 | `--plugin MODULE` | — | Load a plugin module (Python file path or dotted module name). May be repeated. |
 | `--test` | off | Run all `test` blocks in the source file instead of executing a pipeline |
@@ -43,13 +43,23 @@ python main.py examples/blog.agent blog_post \
 }
 ```
 
-Run in live mode:
+Run in live mode (OpenAI):
 
 ```bash
 export OPENAI_API_KEY="sk-..."
 
 python main.py examples/blog.agent blog_post \
   --adapter live \
+  --input '{"topic":"agent memory patterns"}'
+```
+
+Run in anthropic mode (Claude):
+
+```bash
+export ANTHROPIC_API_KEY="sk-ant-..."
+
+python main.py examples/blog.agent blog_post \
+  --adapter anthropic \
   --input '{"topic":"agent memory patterns"}'
 ```
 
@@ -124,7 +134,7 @@ Values are type-checked against declared DSL types. Booleans in JSON are checked
 ## `repl` — interactive session
 
 ```
-python main.py repl [--adapter mock|live]
+python main.py repl [--adapter mock|live|anthropic]
 ```
 
 Starts an interactive prompt for exploring pipelines and workflows.
@@ -142,20 +152,22 @@ AgentLang REPL (adapter=mock). Type 'exit' to quit.
 
 ## Environment variables
 
-These are read at startup and affect live mode behavior:
+These are read at startup and affect live/anthropic mode behavior:
 
 | Variable | Default | Description |
 |---|---|---|
 | `OPENAI_API_KEY` | — | Required for `--adapter live` |
-| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | Override API base URL |
+| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | Override OpenAI API base URL |
+| `ANTHROPIC_API_KEY` | — | Required for `--adapter anthropic` |
+| `ANTHROPIC_BASE_URL` | `https://api.anthropic.com` | Override Anthropic API base URL |
 | `AGENTLANG_ADAPTER` | `mock` | Default adapter if `--adapter` is not passed |
-| `AGENTLANG_DEFAULT_MODEL` | — | Fallback model when no `by agent` binding exists |
+| `AGENTLANG_DEFAULT_MODEL` | `gpt-4.1-mini` | Fallback model when no `by agent` binding exists (mapped automatically in anthropic mode) |
 | `AGENTLANG_WEB_RESULTS` | `5` | Number of DuckDuckGo results to inject for `research` |
-| `AGENTLANG_HTTP_TIMEOUT_S` | `20` | HTTP timeout in seconds for live adapter calls |
+| `AGENTLANG_HTTP_TIMEOUT_S` | `20` | HTTP timeout in seconds for adapter calls |
 | `AGENTLANG_TRACE_LIVE` | `0` | Enable live model/tool tracing without passing `--trace-live` |
 
 !!! warning "Never commit secrets"
-    Use environment variables or a shell profile for `OPENAI_API_KEY`. Do not hardcode keys in `.agent` files or source code.
+    Use environment variables or a shell profile for `OPENAI_API_KEY` and `ANTHROPIC_API_KEY`. Do not hardcode keys in `.agent` files or source code.
 
 ---
 

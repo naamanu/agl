@@ -123,7 +123,7 @@ cargo run -- examples/newsletter.agent weekly_newsletter --lower
 
 See [Rust port status](docs/rust-port.md) for the parity matrix and migration notes.
 
-Native extension guidance is in [docs/native-extensions.md](docs/native-extensions.md); release gates are in [docs/releasing.md](docs/releasing.md).
+Native extension guidance is in [docs/native-extensions.md](docs/native-extensions.md); release gates are in [docs/releasing.md](docs/releasing.md). The post-port language work is tracked in the [AGL language roadmap](docs/roadmap.md).
 
 ---
 

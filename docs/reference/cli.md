@@ -1,188 +1,111 @@
-# CLI Reference
+# CLI reference
 
-AgentLang is invoked via `main.py`. The default command executes a named pipeline or workflow from a file, and `repl` starts an interactive session.
+The native executable is `agl`. During development, invoke it with `cargo run --`; after installation, use `agl` directly. Mock mode is deterministic and does not require credentials.
 
-## `run` — execute a pipeline or workflow
+## Run, check, and inspect a source file
 
+```text
+agl <source.agent> [pipeline-or-workflow] [options]
 ```
-cargo run -- <source> <pipeline> [options]
-```
 
-### Positional arguments
+The source file is parsed, imported modules are loaded, diagnostics are emitted, and the program is statically checked before execution. A pipeline/workflow name is required for execution, `--lower`, and `--effects`; it is not required for `--check`, `--test`, `--format`, `--docs`, `--api`, or `--summary`.
 
-| Argument | Description |
+| Flag | Description |
 |---|---|
-| `source` | Path to a `.agent` file |
-| `pipeline` | Name of the pipeline or workflow to execute |
+| `--input JSON` | Object containing pipeline inputs; default `{}`. |
+| `--check` | Parse, load imports, analyze, and type-check without executing. |
+| `--test` | Run every `test` block in the source file. |
+| `--format` | Print canonical AGL source and exit. |
+| `--lower` | Print the selected pipeline/workflow after workflow lowering. |
+| `--effects` | Print inferred transitive effects as JSON. |
+| `--summary` | Print effects, external writes, and approval boundaries as JSON. |
+| `--docs PATH` | Write generated Markdown API documentation. |
+| `--api PATH` | Write a machine-readable public API snapshot. |
+| `--deployment PATH` | Load provider-neutral agent bindings from JSON. |
+| `--policy PATH` | Enforce effect, tool, network, and filesystem policy. |
+| `--adapter mock\|openai\|live\|anthropic` | Select the task/model adapter. `live` is an OpenAI compatibility alias. |
+| `--trace-live` | Emit model/tool trace lines to stderr. |
+| `--output-trace PATH` | Write the structured execution trace to a JSON file. |
+| `--event-store PATH` | Persist durable events and checkpoints in the local SQLite-backed store. |
+| `--execution-id ID` | Choose a stable durable execution identity; requires `--event-store`. |
+| `--resume` | Replay checkpoints for the selected durable execution; requires `--event-store`. |
+| `--approval NAME=BOOL` | Supply an approval or rejection; may be repeated. |
+| `--eval NAME` | Run a declared dataset evaluation. |
+| `--update-baseline` | Replace the selected evaluation baseline; requires `--eval`. |
+| `--plugin MODULE` | Load a Python compatibility plugin by path or dotted name; may be repeated. |
 
-### Options
-
-| Flag | Default | Description |
-|---|---|---|
-| `--input '<json>'` | `{}` | JSON object mapped to pipeline input params |
-| `--workers N` | `8` | Max threads for `parallel` blocks. Must be `>= 1`. |
-| `--adapter mock\|live\|anthropic` | `mock` | Task execution mode |
-| `--lower` | off | Print the lowered pipeline IR for the selected pipeline or workflow and exit |
-| `--effects` | off | Print inferred transitive pipeline effects as JSON and exit |
-| `--deployment PATH` | off | Validate and apply provider-neutral agent bindings from JSON |
-| `--eval NAME` | off | Run a declared dataset evaluation and emit a JSON report |
-| `--update-baseline` | off | Replace the selected evaluation's baseline with the current report |
-| `--event-store PATH` | off | Persist events in a local SQLite store |
-| `--execution-id ID` | generated | Stable durable execution identity |
-| `--resume` | off | Replay checkpoints for the selected durable execution |
-| `--approval NAME=BOOL` | — | Supply a persisted approval or rejection; may be repeated |
-| `--format` | off | Print canonical AGL source |
-| `--docs PATH` | off | Generate Markdown API documentation |
-| `--api PATH` | off | Write a machine-readable public API interface |
-| `--policy PATH` | off | Enforce a deployment capability/allowlist policy |
-| `--summary` | off | Print effects, external writes, and approvals as JSON |
-| `--trace-live` | off | Emit live model/tool tracing to `stderr` when running with `--adapter live` or `--adapter anthropic` |
-| `--output-trace PATH` | off | Write a structured JSON execution trace to `PATH` after execution |
-| `--plugin MODULE` | — | Load a plugin module (Python file path or dotted module name). May be repeated. |
-| `--test` | off | Run all `test` blocks in the source file instead of executing a pipeline |
-
-### Examples
-
-Run in mock mode (default):
+Examples:
 
 ```bash
 cargo run -- examples/blog.agent blog_post \
   --input '{"topic":"agent memory patterns"}'
-```
-
-```json
-{
-  "result": "[writer] Draft article:\n[planner] key points for 'agent memory patterns'"
-}
-```
-
-Run in live mode (OpenAI):
-
-```bash
-export OPENAI_API_KEY="sk-..."
-
-cargo run -- examples/blog.agent blog_post \
-  --adapter live \
-  --input '{"topic":"agent memory patterns"}'
-```
-
-Run in anthropic mode (Claude):
-
-```bash
-export ANTHROPIC_API_KEY="sk-ant-..."
-
-cargo run -- examples/blog.agent blog_post \
-  --adapter anthropic \
-  --input '{"topic":"agent memory patterns"}'
-```
-
-Inspect lowered workflow IR:
-
-```bash
-cargo run -- examples/multiagent_blog.agent publish_topic_blog --lower
-```
-
-Trace live model and tool activity:
-
-```bash
-cargo run -- examples/incident_runbook.agent respond_to_incident \
-  --adapter live \
-  --trace-live \
-  --input '{"incident":"database failover drill"}'
-```
-
-Limit parallel workers:
-
-```bash
-cargo run -- examples/compare.agent compare_options \
-  --input '{"query":"vector database"}' \
-  --workers 2
-```
-
-Write an execution trace to a file:
-
-```bash
-cargo run -- examples/showcase_all_features.agent produce \
-  --input '{"topic":"AI safety"}' \
-  --output-trace trace.json
-```
-
-Run with a plugin:
-
-```bash
-cargo run -- examples/showcase_all_features.agent produce \
-  --input '{"topic":"AI safety"}' \
-  --plugin examples/showcase_plugin.py
-```
-
-Run test blocks:
-
-```bash
+cargo run -- examples/showcase_all_features.agent --check
 cargo run -- examples/showcase_all_features.agent --test
+cargo run -- examples/multiagent_blog.agent publish_topic_blog --lower
+cargo run -- examples/blog.agent blog_post --effects
+cargo run -- examples/blog.agent blog_post --summary
+cargo run -- examples/blog.agent blog_post --output-trace trace.json
 ```
 
-### Input validation
+Input keys and values are checked against the declared pipeline signature before execution. Errors use stable diagnostic codes and include source locations where available.
 
-`--input` is validated before execution:
-
-```bash
-# Missing required input
-cargo run -- examples/blog.agent blog_post --input '{}'
-Execution error: Pipeline 'blog_post' missing inputs: ['topic'].
-
-# Unknown extra key
-cargo run -- examples/blog.agent blog_post \
-  --input '{"topic":"x","extra":"bad"}'
-Execution error: Pipeline 'blog_post' received unknown inputs: ['extra'].
-
-# Wrong pipeline/workflow name
-cargo run -- examples/blog.agent nonexistent_pipeline --input '{}'
-Execution error: Unknown pipeline 'nonexistent_pipeline'.
-```
-
-Values are type-checked against declared DSL types. Booleans in JSON are checked against `Bool`; integers and floats are `Number`; `true`/`false` are **not** accepted as `Number`.
-
----
-
-## `repl` — interactive session
-
-```
-cargo run -- repl [--adapter mock|live|anthropic]
-```
-
-Starts an interactive prompt for exploring pipelines and workflows.
+## REPL
 
 ```bash
 cargo run -- repl --adapter mock
 ```
 
+The REPL is stateful. Load a source file, then run a named pipeline:
+
+```text
+AGL REPL (adapter=mock). Type 'help' for commands, 'exit' to quit.
+> load examples/blog.agent
+Loaded 'examples/blog.agent': 2 agents, 2 tasks, 1 pipelines.
+> run blog_post {"topic":"agent memory"}
+{
+  "result": "[writer] Draft article:\n[planner] key points for 'agent memory'"
+}
 ```
-AgentLang REPL (adapter=mock). Type 'exit' to quit.
->
+
+Commands are `load <path>`, `run <name> [json]`, `lower <name>`, `list`, `clear`, `help`, and `exit`. REPL options also accept `--deployment`, `--plugin`, and `--trace-live`.
+
+## Tooling subcommands
+
+These commands are intercepted by the native binary and do not use the source-file CLI:
+
+```bash
+agl protocol                 # JSON-lines compiler protocol over stdin/stdout
+agl lsp                      # LSP server over stdio
+agl completions bash         # bash completion script (also zsh and fish)
+agl package lock agl.json    # write agl.lock
+agl api-compare old.json new.json
 ```
 
----
+The protocol accepts structured parse/check/format/lower/effects requests. The LSP server supports diagnostics, completion, hover, definition, references, rename, and formatting.
 
-## Environment variables
+## Live adapters and environment
 
-These are read at startup and affect live/anthropic mode behavior:
+```bash
+export OPENAI_API_KEY="sk-..."
+cargo run -- examples/incident_runbook.agent respond_to_incident \
+  --adapter openai --trace-live \
+  --input '{"incident":"database failover drill"}'
 
-| Variable | Default | Description |
-|---|---|---|
-| `OPENAI_API_KEY` | — | Required for `--adapter openai` (`live` is an alias) |
-| `ANTHROPIC_API_KEY` | — | Required for `--adapter anthropic` |
-| `AGL_OPENAI_MODEL` | `gpt-5.6-sol` | Global OpenAI model override |
-| `AGL_ANTHROPIC_MODEL` | provider default | Global Anthropic model override |
+export ANTHROPIC_API_KEY="sk-ant-..."
+cargo run -- examples/incident_runbook.agent respond_to_incident \
+  --adapter anthropic --trace-live \
+  --input '{"incident":"database failover drill"}'
+```
 
-!!! warning "Never commit secrets"
-    Use environment variables or a shell profile for `OPENAI_API_KEY` and `ANTHROPIC_API_KEY`. Do not hardcode keys in `.agent` files or source code.
-
----
-
-## Exit codes
-
-| Code | Meaning |
+| Variable | Meaning |
 |---|---|
-| `0` | Pipeline or workflow executed successfully; all tests passed (with `--test`) |
-| `1` | Runtime error (bad input, failed task, missing key); test failure (with `--test`) |
-| `2` | Argument parse error (bad CLI flags) |
+| `OPENAI_API_KEY` | Credential for the OpenAI adapter. |
+| `ANTHROPIC_API_KEY` | Credential for the Anthropic adapter. |
+| `AGL_OPENAI_MODEL` | Optional OpenAI model override. |
+| `AGL_ANTHROPIC_MODEL` | Optional Anthropic model override. |
+
+Never put credentials in `.agent` files or deployment/policy JSON.
+
+## Exit status
+
+`0` means the requested operation succeeded. `1` means a source, type, runtime, provider, plugin, policy, or evaluation failure. `2` means invalid CLI arguments or an unsupported completion shell.

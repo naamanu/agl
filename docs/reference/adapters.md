@@ -1,10 +1,10 @@
 # Adapters
 
-Adapters determine how task handlers are executed. AgentLang ships with three: `mock` for deterministic local development, `live` for real LLM calls via OpenAI, and `anthropic` for real LLM calls via Anthropic/Claude. Both live adapters support typed tool calling.
+Adapters determine how task handlers are executed. AgentLang ships with deterministic `mock`, OpenAI (`openai`, with `live` as a compatibility alias), and Anthropic (`anthropic`) modes. Both provider adapters support typed tool calling.
 
 ## Mock adapter (default)
 
-Mock mode uses local Python handlers that return structured placeholder values. No external API calls are made.
+Mock mode uses deterministic handlers in the Rust standard library and runtime. No external API calls are made.
 
 ```bash
 cargo run -- examples/blog.agent blog_post \
@@ -31,7 +31,7 @@ Live mode routes LLM-backed tasks to the OpenAI Responses API and activates type
 export OPENAI_API_KEY="sk-..."
 
 cargo run -- examples/blog.agent blog_post \
-  --adapter live \
+  --adapter openai \
   --input '{"topic":"agent memory patterns"}'
 ```
 
@@ -136,7 +136,7 @@ Use `--trace-live` to print live execution trace lines to `stderr`. This works w
 
 ```bash
 cargo run -- examples/incident_runbook.agent respond_to_incident \
-  --adapter live \
+  --adapter openai \
   --trace-live \
   --input '{"incident":"database failover drill"}'
 ```

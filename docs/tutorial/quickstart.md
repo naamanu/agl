@@ -122,15 +122,17 @@ cargo run -- repl --adapter mock
 ```
 
 ```
-AgentLang REPL (adapter=mock). Type 'exit' to quit.
-> examples/blog.agent blog_post {"topic":"agent memory"}
+AGL REPL (adapter=mock). Type 'help' for commands, 'exit' to quit.
+> load examples/blog.agent
+Loaded 'examples/blog.agent': 2 agents, 2 tasks, 1 pipelines.
+> run blog_post {"topic":"agent memory"}
 {
   "result": "[writer] Draft article:\n[planner] key points for 'agent memory'"
 }
 > exit
 ```
 
-Each line at the `>` prompt takes the form `<source_file> <pipeline_or_workflow_name> [json_input]`. Errors are printed and the REPL continues — no restart needed.
+The REPL is stateful: use `load <path>`, then `run <pipeline-or-workflow> [json]`. `lower`, `list`, `clear`, and `help` are also available. Errors are printed and the session continues.
 
 ## 7. Trace a live run
 

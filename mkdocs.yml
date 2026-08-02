@@ -67,6 +67,9 @@ nav:
       - Adapters: reference/adapters.md
       - Runtime & Typing: reference/runtime.md
       - Examples: reference/examples.md
+      - Rust Port Status: rust-port.md
+      - Native Extensions: native-extensions.md
+      - Release Guide: releasing.md
   - Advanced:
       - Formal Semantics: advanced/semantics.md
       - Language Roadmap: roadmap.md

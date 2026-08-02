@@ -1,6 +1,6 @@
 # Language Reference
 
-Complete syntax reference for AGL 0.2 and 0.3.
+Complete syntax reference for AGL 0.2 through 0.6. The Rust parser and checker are the executable reference; the versioned normative contracts live in `spec/agl-0.2.md` through `spec/agl-0.6.md`.
 
 ## File structure
 
@@ -279,7 +279,7 @@ parallel [ max_concurrency <N> ] {
 
 Only `let ... = run ...;` statements are permitted inside. All bindings from inside the block are available after `join`.
 
-The optional `max_concurrency N` limits how many branches run simultaneously within this block (overrides the global `--workers` for this block).
+The optional `max_concurrency N` limits how many branches run simultaneously within this block. There is no global worker flag; task concurrency groups, rate limits, and pipeline budgets provide broader controls.
 
 ### Conditional
 
@@ -446,3 +446,45 @@ Duplicate field names in `Obj` types are a parse error.
 ```
 
 Only `--` line comments are supported. Block comments are not supported in v0.
+
+## AGL 0.4 effects, idempotency, and deployment
+
+Tasks and pipelines may declare operational capabilities and retry identity:
+
+```agentlang
+language "0.4";
+task publish(id: String, body: String) -> String
+  effects [network, external_write]
+  idempotency keyed_by id {}
+```
+
+Built-in effects include `model`, `network`, `filesystem`, `external_read`, `external_write`, `secret`, and `human`. Effects are inferred transitively and can be inspected with `--effects`.
+
+## AGL 0.5 structured concurrency and approvals
+
+AGL 0.5 adds ordered `parallel map`, `race`, scheduler groups, resource budgets, and typed human approvals:
+
+```agentlang
+language "0.5";
+let approved = approve release "Release to production?" expires 3600 delegate oncall;
+let results = parallel map item in inputs max_concurrency 4 collect_all {
+  let result = run classify with { value: item };
+};
+```
+
+Approvals suspend a durable run until a host supplies `--approval release=true` or `--approval release=false`.
+
+## AGL 0.6 modules and packages
+
+Imports are relative to the importing file. Declarations are private by default; imported declarations must be `public` and are referenced through an alias:
+
+```agentlang
+language "0.6";
+import text from "text.agent";
+
+public pipeline report(input: String) -> String {
+  return text::normalize(input);
+}
+```
+
+Package manifests use `agl.json`; `agl package lock agl.json` creates a deterministic `agl.lock`. Use `--api` to snapshot the public interface and `agl api-compare` to check compatibility before a release.

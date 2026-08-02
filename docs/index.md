@@ -44,13 +44,13 @@ Most "agent frameworks" hide the execution model behind layers of abstraction. A
 
 | | AgentLang |
 |---|---|
-| External dependencies | None (core) |
+| Runtime dependencies | Rust library dependencies; no service required in mock mode |
 | Type checking | Static, structural |
-  | High-level authoring | `workflow`, `stage`, `review` |
-  | Parallel execution | Built-in `parallel { } join` |
-  | Looping | `while`, `break`, `continue` |
-  | Retry / fallback | First-class syntax |
-  | LLM backend | Optional (`--adapter live` or `--adapter anthropic`) |
+| High-level authoring | `workflow`, `stage`, `review` |
+| Parallel execution | Built-in `parallel { } join`, `parallel map`, and `race` |
+| Looping | `while`, `break`, `continue` |
+| Retry / fallback | First-class syntax with typed retry safety |
+| LLM backend | Optional (`--adapter openai`/`live` or `--adapter anthropic`) |
 
 ---
 

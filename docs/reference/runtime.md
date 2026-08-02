@@ -1,215 +1,74 @@
-# Runtime & Typing
+# Compiler and runtime
 
-The normative source-language contract is [`spec/agl-0.2.md`](https://github.com/naamanu/agl/blob/main/spec/agl-0.2.md). The Rust implementation is normative; this page explains its compiler and runtime architecture.
+The Rust implementation is normative for AGL 0.6. The versioned language contracts are in [`spec/agl-0.2.md`](https://github.com/naamanu/agl/blob/main/spec/agl-0.2.md) through [`spec/agl-0.6.md`](https://github.com/naamanu/agl/blob/main/spec/agl-0.6.md); the Python implementation is retained as a compatibility oracle and plugin bridge.
 
-This page describes the AgentLang execution pipeline — from source text to final output — and the guarantees each phase provides.
-
-## Execution phases
-
-```
-Source text (.agent file)
-        │
-        ▼
-    Lexer (agentlang/lexer.py)
-        │  Tokenizes source, decodes escape sequences
-        ▼
-    Parser (agentlang/parser.py)
-        │  Builds AST, enforces structural uniqueness
-        ▼
-    Lowering (agentlang/lowering.py)
-        │  Compiles workflows into explicit pipelines
-        ▼
-    Type Checker (agentlang/checker.py)
-        │  Verifies types, bindings, and return paths
-        ▼
-    Runtime (agentlang/runtime.py)
-        │  Executes pipeline, calls task handlers
-        ▼
-    Output (JSON to stdout)
-```
-
-## Lexer
-
-The lexer converts source text into a flat token stream.
-
-- Recognizes keywords: `agent`, `task`, `pipeline`, `let`, `run`, `with`, `by`, `retries`, `on_fail`, `abort`, `use`, `parallel`, `join`, `if`, `else`, `return`, `true`, `false`, `type`, `enum`, `try`, `catch`, `assert`, `test`, `max_concurrency`
-- Recognizes workflow keywords such as `workflow`, `stage`, `review`, `checks`, `revise`, `using`, and `max_rounds`
-- Decodes string escape sequences: `\n`, `\t`, `\r`, `\\`, `\"`, `\'`, `\0`, `\uXXXX`, `\UXXXXXXXX`
-- Rejects unknown escapes and invalid Unicode code points (surrogates, values above `U+10FFFF`)
-
-## Parser
-
-The parser builds the AST and enforces structural uniqueness constraints.
-
-Guarantees:
-
-- Unique agent, task, and pipeline names
-- Unique workflow names
-- Unique type alias and enum names
-- Unique enum variant names within each enum
-- Unique parameter names within each task/pipeline
-- Unique field names in object type declarations and object literals
-- Unique tool names within an agent's tool list
-- Unique argument keys in `run` call argument maps
-- Well-formed `parallel`, `if`, `return`, `try`/`catch`, `assert`, and `test` blocks
-
-## Lowering
-
-When a file contains `workflow` declarations, the lowering pass compiles them into ordinary `PipelineDef` nodes before type-checking and execution.
-
-Current workflow lowering handles:
-
-- `stage` steps
-- declarative `review ... revise ... max_rounds ...` loops
-- hidden countdown-based loop budgets
-- workflow returns
-
-`cargo run -- <file> <workflow_name> --lower` prints the lowered pipeline IR.
-
-## Type checker
-
-The type checker walks the AST and verifies semantic correctness before any task executes.
-
-Verifies:
-
-- Every variable reference is bound
-- `run` target task or pipeline exists in the task/pipeline table
-- `by` agent exists in the agent table (when specified)
-- Argument names exactly match task parameter names
-- Argument expression types match declared task input types
-- `if` condition has type `Bool`
-- `while` condition has type `Bool`
-- `break` / `continue` only occur inside loops
-- `if let` only unwraps `Option[T]`
-- `on_fail use` fallback type matches the task's return type
-- `return` expression type equals the pipeline's declared return type
-- `try`/`catch` block well-formedness; error variable typed as `String`
-- `assert` expression has type `Bool`
-- Enum values are valid variants of the declared enum
-- Type aliases are resolved to their underlying types
-- Pipeline-as-run-target parameter and return types match
-- workflow-lowered pipelines remain well-typed after compilation
-
-Path sensitivity:
-
-- `if/else`: the checker tracks variable bindings introduced in both branches
-- `if` without `else`: the checker does not assume a guaranteed return from the `if` block alone — a `return` must exist outside it, or in an `else`
-- `try/catch`: variables bound before `try` may be re-bound in both blocks; the merged environment is available after
-
-## Runtime
-
-The runtime walks pipeline statements in order, maintaining an environment map of `name → value`.
-
-### Run statement
-
-1. Evaluates argument expressions against the current environment.
-2. Looks up the task handler from the registry.
-3. Executes the handler (up to `retries + 1` times on failure).
-4. If a `timeout` clause is present, the handler runs on a daemon thread. If it does not finish within the deadline, `HandlerTimeoutError` is raised and remaining retries are skipped (because the abandoned handler thread is still running in the background).
-5. On exhausted retries:
-   - `on_fail abort`: raises `RuntimeError`, pipeline stops.
-   - `on_fail use <expr>`: evaluates the fallback expression and binds the result.
-6. Binds the result to the declared variable name.
-
-### Parallel block
-
-1. Takes a **read-only snapshot** of the current environment.
-2. Submits each branch as a `ThreadPoolExecutor` future.
-3. Waits for all futures to complete.
-4. Merges all branch results into the main environment.
-5. Continues sequentially after `join`.
-
-### Conditional
-
-1. Evaluates the condition expression.
-2. Executes exactly one branch (then or else).
-
-### While / break / continue
-
-1. Evaluates the loop condition.
-2. Executes the body while the condition remains `true`.
-3. `break` exits the nearest loop.
-4. `continue` skips to the next iteration.
-
-### Agent tasks
-
-1. Selects the model from the bound agent.
-2. Exposes the agent's declared tools, if any.
-3. Executes tool calls through the runtime tool registry.
-4. Decodes final model output as JSON.
-5. Validates the resulting runtime value against the declared DSL type.
-
-### Return
-
-1. Evaluates the return expression.
-2. Exits the pipeline immediately, returning the value.
-
-### Try / catch
-
-1. Executes the `try` block statements in order.
-2. If any statement raises a runtime error, execution jumps to the `catch` block.
-3. The error variable is bound as a `String` containing the error message.
-4. After either block completes, execution continues with the merged environment.
-
-### Assert
-
-1. Evaluates the expression (must be `Bool`).
-2. If `false`, halts execution with an assertion error containing the message string.
-3. If `true`, continues to the next statement.
-
-### Pipeline call
-
-1. Evaluates argument expressions against the current environment.
-2. Creates a new scope for the target pipeline with the arguments bound as parameters.
-3. Executes the target pipeline.
-4. Binds the result to the declared variable name.
-
-### ExecutionContext
-
-When `--output-trace PATH` is passed, an `ExecutionContext` records structured events throughout execution:
-
-- `task_start` / `task_end` / `task_error` — per-task lifecycle
-- `parallel_start` / `parallel_end` — parallel block boundaries
-- `retry` — retry attempts with error details
-- `pipeline_call` — pipeline-calls-pipeline events
-
-Each `record_task_start` call returns a unique correlation `id` (e.g. `task:research:1`). All subsequent `retry`, `task_end`, and `task_error` events for that invocation carry the same `id`, making concurrent same-name tasks distinguishable in traces.
-
-After execution, the trace is written as JSON to the specified path.
-
-### Diagnostics
-
-`get_leaked_thread_count()` (from `agentlang.runtime`) returns the number of abandoned handler threads that are still alive. A handler thread is abandoned when its `timeout` deadline is exceeded. This function is useful for monitoring resource leaks in long-running processes.
-
-## Determinism
-
-| Component | Deterministic? |
-|---|---|
-| Lexer + parser | Always |
-| Type checker | Always |
-| Expression evaluation | Always |
-| Mock task handlers | Always |
-| `parallel` branch *ordering* | Not guaranteed |
-| Live task outputs | Depends on LLM/network |
-
-The final output is deterministic only if all task handlers are deterministic. Mock mode is always deterministic; live mode depends on the LLM.
-
-## Failure sources
-
-Failures during execution surface as:
+## Execution pipeline
 
 ```text
-Execution error: <message>
+AGL source
+  │
+  ├─ lexer and parser ──> AST with source spans
+  ├─ module loader ─────> imported program + cached public interfaces
+  ├─ checker ───────────> types, effects, deployment requirements
+  ├─ analyzer ──────────> warnings and suggestions
+  └─ runtime ───────────> deterministic or live execution + trace events
 ```
 
-Common sources:
+The CLI performs these phases in order. `--check`, `--format`, `--lower`, `--effects`, `--summary`, `--docs`, and `--api` stop after their respective inspection phase.
 
-| Source | Example message |
-|---|---|
-| Missing task handler | `Unknown task 'my_task'` |
-| Adapter/network error | `LLM call failed: <http error>` |
-| Invalid field access | `KeyError: 'missing_field'` |
-| Unhandled task exception | `Task 'flaky_fetch' failed after 3 attempts. Last error: RuntimeError: ...` |
-| Invalid pipeline inputs | `Pipeline 'p' missing inputs: ['topic']` |
-| Invalid live agent output | `Agent task 'investigate' returned non-JSON output: '...'` |
-| Handler timeout | `Task handler exceeded Xs deadline (handler may still be running in background).` |
+## Public Rust API
+
+The `agl` crate exposes compiler phases without shelling out:
+
+```rust
+use agl::{check_program, execute_pipeline, parse_program};
+use std::collections::BTreeMap;
+
+let program = parse_program(source)?;
+check_program(&program)?;
+let value = execute_pipeline(&program, "pipeline_name", BTreeMap::new(), &registry, &context)?;
+```
+
+Important public types include `Program`, `Registry`, `Invocation`, `TaskOutput`, `HandlerFailure`, `ExecutionContext`, `CancellationToken`, `EventStore`, and the extension traits in `agl::extension`.
+
+## Handlers and invocations
+
+Task declarations provide signatures; behavior comes from a Rust `Registry`, a native provider adapter, or the process-isolated Python compatibility bridge. Contextual handlers receive an `Invocation` containing:
+
+- stable execution, invocation, and idempotency identifiers;
+- attempt number and optional execution context;
+- a cooperative `CancellationToken`;
+- usage reporting through `TaskOutput`.
+
+Handlers should check cancellation at meaningful points and return `HandlerFailure` with an explicit kind and retryability rather than throwing an untyped exception.
+
+## Retries, timeouts, and effects
+
+Retries are bounded by the source declaration and resource budgets. Backoff supports initial delay, maximum delay, multiplier, and deterministic jitter. A retry preserves the logical invocation identity and idempotency key while incrementing the attempt number. A timeout cancels the invocation cooperatively and is non-retryable unless the program explicitly models another recovery path.
+
+The checker infers transitive effects from task, tool, pipeline, and agent declarations. `--effects` exposes the result; `--summary` additionally reports external writes and approval boundaries. Retry safety is checked against declared idempotency and effects.
+
+## Structured concurrency
+
+AGL 0.5/0.6 provides bounded `parallel`, ordered `parallel map`, and `race` statements. Child scopes are joined before their parent continues. `race` cancels losing branches. Scheduler groups, concurrency limits, rate limits, and pipeline budgets are enforced by the runtime.
+
+## Durable execution
+
+`ExecutionContext::durable` and `SqliteEventStore` persist task attempts, results, checkpoints, approvals, and trace events. The CLI equivalent is:
+
+```bash
+cargo run -- examples/showcase_all_features.agent produce \
+  --event-store run.sqlite --execution-id incident-42
+cargo run -- examples/showcase_all_features.agent produce \
+  --event-store run.sqlite --execution-id incident-42 --resume
+```
+
+Replay requires the same source/deployment contract. The runtime records content fingerprints and stable IDs so a resumed run cannot silently consume incompatible results.
+
+## Observability and redaction
+
+`ExecutionContext::events()` returns structured `TraceEvent` values. The CLI writes them with `--output-trace`. Durable persistence and trace output redact configured secret values before storage. Event records include execution, invocation, attempt, idempotency, provider, usage, and failure information where available.
+
+## Diagnostics
+
+Lexing, parsing, checking, and analysis failures carry stable codes and source spans. The CLI renders a human-readable diagnostic; the JSON-lines protocol and LSP expose machine-readable diagnostics for editor/build integration.

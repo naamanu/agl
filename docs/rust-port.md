@@ -1,59 +1,57 @@
-# Rust port status
+# Rust implementation status
 
-AGL 0.2 introduces a native Rust implementation as the normative compiler and runtime while preserving the Python implementation as a compatibility oracle during migration. The versioned contract is [the AGL 0.2 specification](../spec/agl-0.2.md).
+AGL 0.6 is implemented by the native Rust compiler, checker, runtime, CLI, adapters, and embedding API. The Python implementation remains available as a compatibility oracle and as a migration bridge for existing task/tool plugins; it is not the normative runtime.
 
-## Native parity
+## Implemented surface
 
-| Capability | Rust 0.2 |
+| Area | Status |
 |---|---|
-| Lexer, escapes, source spans | Complete |
-| Tasks, tools, agents, aliases, enums | Complete |
-| Pipelines and shorthand calls | Complete |
-| Workflows, stages, review/revision lowering | Complete |
-| Static structural type checking | Complete |
-| `if`, `if let`, `while`, break/continue | Complete |
-| Parallel execution and `max_concurrency` | Complete |
-| Retry, fallback, timeout, try/catch | Complete |
-| Pipeline composition, assertions, test blocks | Complete |
-| Deterministic mock handlers | Complete |
-| Structured JSON traces | Complete |
-| Native embedding/handler registration | Complete |
-| OpenAI and Anthropic adapters | Complete |
-| Web tool adapters | Complete |
-| Dynamic Python task plugins | Complete via migration bridge |
-| Dynamic Python tool plugins | Complete via migration bridge |
-| Interactive REPL and lowered-IR printer | Complete |
+| Lexer, parser, source spans, diagnostics | Complete |
+| AGL 0.2–0.6 language versions | Complete |
+| Types, records, unions, `Result`, exhaustive matching | Complete |
+| Workflows and pipeline lowering | Complete |
+| Effects, idempotency, retries, budgets | Complete |
+| Provider-neutral deployment bindings and policy | Complete |
+| Parallel, `parallel map`, `race`, cancellation | Complete |
+| Durable SQLite-backed events, replay, approvals | Complete |
+| Evaluations, distributions, baselines, replay | Complete |
+| Modules, visibility, package locks, API comparison | Complete |
+| Formatter, JSON-lines protocol, LSP, completions | Complete |
+| OpenAI and Anthropic adapters plus native tools | Complete |
+| Rust handler/tool/adapter extension traits | Complete |
+| Python task/tool plugin bridge | Compatibility support |
 
-All checked-in `.agent` examples are parsed and checked by the Rust integration suite. A differential test executes the blog, support-routing, comparison, and retry pipelines through both implementations and requires identical JSON results.
+## Compatibility boundary
 
-The native runtime benchmark uses two 25 ms handlers. On an Apple Silicon development machine it measured 57.77 ms sequentially and 29.23 ms in parallel, a 1.98x speedup over 12 iterations. Treat this as a reproducible smoke benchmark rather than a general performance claim; run `cargo bench --bench runtime` on each target platform.
-
-## Provider configuration
-
-OpenAI defaults to `gpt-5.6-sol` with medium reasoning effort. Legacy `gpt-4.1`/`gpt-4o` declarations map to Sol, while legacy mini declarations map to `gpt-5.6-luna`. Set `AGL_OPENAI_MODEL` to override routing globally. Anthropic can be overridden with `AGL_ANTHROPIC_MODEL`.
-
-Real-provider tests are ignored during ordinary local and pull-request test runs because they are billable. Use `.github/workflows/live-smoke.yml` or run the ignored tests explicitly after setting the relevant API key.
+Rust accepts the checked-in `.agent` examples and is the implementation used by the conformance and differential suites. Python plugins run in a separate process through a versioned JSON envelope; native applications should prefer `Registry`, `ToolRegistry`, and the extension traits in `agl::extension`.
 
 ## Embedding
-
-The crate is library-first:
 
 ```rust
 use agl::{check_program, execute_pipeline, parse_program, Registry};
 use agl::context::ExecutionContext;
-```
+use std::collections::BTreeMap;
 
-Use `Registry::register` to supply application task handlers. A handler receives evaluated JSON arguments and the optional agent name, and returns a JSON value or a concise error string. This replaces Python module loading with a compile-time-safe native extension point.
+let program = parse_program(source)?;
+check_program(&program)?;
+let registry = Registry::default();
+let value = execute_pipeline(
+    &program,
+    "pipeline_name",
+    BTreeMap::new(),
+    &registry,
+    &ExecutionContext::default(),
+)?;
+```
 
 ## Validation
 
 ```bash
 cargo fmt --all -- --check
-cargo test
-cargo run -- examples/showcase_all_features.agent --check
+cargo clippy --all-targets --all-features --offline -- -D warnings
+cargo test --locked --offline
 python3 -m unittest discover -s tests
+cargo package --locked --offline
 ```
 
-The Python suite remains required while the reference implementation is retained. Python task and tool plugins run through an isolated JSON subprocess bridge; native applications should use the Rust `Registry` and `ToolRegistry` APIs.
-
-See [Native extensions and plugin migration](native-extensions.md) and [Releasing](releasing.md).
+The live-provider tests are intentionally ignored in ordinary runs because they require credentials and make billable network calls. Run them manually or through `.github/workflows/live-smoke.yml` before a provider release.

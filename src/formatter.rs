@@ -85,6 +85,52 @@ fn statements(items: &[Stmt], indent: &str, lines: &mut Vec<String>) {
                 line.push(';');
                 lines.push(line);
             }
+            Stmt::Approve {
+                target,
+                approval,
+                prompt,
+                expires_seconds,
+                delegate,
+                ..
+            } => {
+                let mut line = format!("{indent}let {target} = approve {approval} {:?}", prompt);
+                if let Some(seconds) = expires_seconds {
+                    line.push_str(&format!(" expires {seconds}"));
+                }
+                if let Some(delegate) = delegate {
+                    line.push_str(&format!(" delegate {delegate}"));
+                }
+                line.push(';');
+                lines.push(line);
+            }
+            Stmt::ParallelMap {
+                target,
+                binding,
+                items,
+                run,
+                max_concurrency,
+                failure_policy,
+                ..
+            } => {
+                let policy = match failure_policy {
+                    FailurePolicy::FailFast => "fail_fast",
+                    FailurePolicy::CollectAll => "collect_all",
+                };
+                lines.push(format!("{indent}let {target} = parallel map {binding} in {} max_concurrency {max_concurrency} {policy} {{", format_expr(items)));
+                statements(&[Stmt::Run(run.clone())], &child, lines);
+                lines.push(format!("{indent}}};"));
+            }
+            Stmt::Race {
+                target, branches, ..
+            } => {
+                lines.push(format!("{indent}let {target} = race {{"));
+                statements(
+                    &branches.iter().cloned().map(Stmt::Run).collect::<Vec<_>>(),
+                    &child,
+                    lines,
+                );
+                lines.push(format!("{indent}}};"));
+            }
             Stmt::Parallel {
                 branches,
                 max_concurrency,

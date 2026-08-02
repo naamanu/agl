@@ -1,0 +1,6 @@
+{
+  "source": "valid/structured_concurrency.agent",
+  "phase": "lower",
+  "pipeline": "main",
+  "contains": "parallel map item in values max_concurrency 2 collect_all"
+}

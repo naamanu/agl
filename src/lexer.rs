@@ -109,6 +109,17 @@ const KEYWORDS: &[&str] = &[
     "max_cost_usd",
     "semantic_grader",
     "pipeline_name",
+    "approve",
+    "expires",
+    "delegate",
+    "map",
+    "in",
+    "race",
+    "fail_fast",
+    "collect_all",
+    "concurrency_group",
+    "concurrency_limit",
+    "rate_limit",
 ];
 
 pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {

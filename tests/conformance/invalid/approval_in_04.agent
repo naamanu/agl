@@ -1,0 +1,6 @@
+language "0.4";
+
+pipeline main() -> Bool {
+  let approved = approve release "Release?";
+  return approved;
+}

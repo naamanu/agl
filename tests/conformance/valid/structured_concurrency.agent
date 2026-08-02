@@ -1,0 +1,16 @@
+language "0.5";
+
+task transform(value: String) -> String idempotency pure {}
+task backup(value: String) -> String idempotency idempotent {}
+
+pipeline main(values: List[String], value: String) -> List[String] effects [human] {
+  let outputs = parallel map item in values max_concurrency 2 collect_all {
+    let output = transform(item);
+  };
+  let winner = race {
+    let first = transform(value);
+    let second = backup(value);
+  };
+  let approved = approve release "Release results?" expires 60 delegate operator;
+  return outputs;
+}

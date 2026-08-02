@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use thiserror::Error;
@@ -12,13 +12,20 @@ use thiserror::Error;
 pub type Handler =
     Arc<dyn Fn(&BTreeMap<String, Value>, Option<&str>) -> Result<Value, String> + Send + Sync>;
 type ContextualHandler = Arc<
-    dyn Fn(&BTreeMap<String, Value>, Option<&str>, &Invocation) -> Result<TaskOutput, String>
+    dyn Fn(
+            &BTreeMap<String, Value>,
+            Option<&str>,
+            &Invocation,
+        ) -> Result<TaskOutput, HandlerFailure>
         + Send
         + Sync,
 >;
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Usage {
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub prompt_fingerprint: Option<String>,
     pub input_tokens: u64,
     pub output_tokens: u64,
     pub cost_usd: f64,
@@ -40,12 +47,77 @@ impl TaskOutput {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Invocation {
     pub execution_id: String,
     pub invocation_id: String,
     pub idempotency_key: String,
     pub attempt: u32,
+    #[serde(skip, default)]
+    pub cancellation: CancellationToken,
+    #[serde(skip, default)]
+    context: Option<ExecutionContext>,
+}
+impl Invocation {
+    pub fn record(&self, kind: impl Into<String>, fields: Value) {
+        if let Some(context) = &self.context {
+            context.record(kind, fields);
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct CancellationToken(Arc<AtomicBool>);
+impl CancellationToken {
+    pub fn cancel(&self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+    pub fn is_cancelled(&self) -> bool {
+        self.0.load(Ordering::SeqCst)
+    }
+}
+
+#[derive(Debug, Error, Clone)]
+#[error("{message}")]
+pub struct HandlerFailure {
+    pub kind: &'static str,
+    pub message: String,
+    pub retryable: bool,
+}
+impl HandlerFailure {
+    pub fn task(message: impl Into<String>, retryable: bool) -> Self {
+        Self {
+            kind: "task",
+            message: message.into(),
+            retryable,
+        }
+    }
+    pub fn tool(message: impl Into<String>, retryable: bool) -> Self {
+        Self {
+            kind: "tool",
+            message: message.into(),
+            retryable,
+        }
+    }
+    pub fn adapter(message: impl Into<String>, retryable: bool) -> Self {
+        Self {
+            kind: "adapter",
+            message: message.into(),
+            retryable,
+        }
+    }
+    pub fn cancelled(message: impl Into<String>) -> Self {
+        Self {
+            kind: "cancelled",
+            message: message.into(),
+            retryable: false,
+        }
+    }
+}
+impl From<String> for HandlerFailure {
+    fn from(message: String) -> Self {
+        Self::task(message, true)
+    }
 }
 
 #[derive(Clone, Default)]
@@ -62,13 +134,21 @@ impl Registry {
     {
         self.handlers.insert(
             name.into(),
-            Arc::new(move |args, agent, _| f(args, agent).map(TaskOutput::new)),
+            Arc::new(move |args, agent, _| {
+                f(args, agent)
+                    .map(TaskOutput::new)
+                    .map_err(|message| HandlerFailure::task(message, true))
+            }),
         );
     }
 
     pub fn register_contextual<F>(&mut self, name: impl Into<String>, f: F)
     where
-        F: Fn(&BTreeMap<String, Value>, Option<&str>, &Invocation) -> Result<TaskOutput, String>
+        F: Fn(
+                &BTreeMap<String, Value>,
+                Option<&str>,
+                &Invocation,
+            ) -> Result<TaskOutput, HandlerFailure>
             + Send
             + Sync
             + 'static,
@@ -230,8 +310,34 @@ pub fn execute_pipeline(
     registry: &Registry,
     context: &ExecutionContext,
 ) -> Result<Value, ExecutionError> {
-    let execution_id = context.next_id("exec");
+    let execution_id = context
+        .execution_id()
+        .map(str::to_owned)
+        .unwrap_or_else(|| context.next_id("exec"));
     execute(program, name, inputs, registry, context, 0, &execution_id)
+}
+
+/// Executes a pipeline on the async runtime while preserving the synchronous
+/// embedding API. Contextual handlers receive cooperative cancellation tokens.
+pub async fn execute_pipeline_async(
+    program: Arc<Program>,
+    name: String,
+    inputs: BTreeMap<String, Value>,
+    registry: Registry,
+    context: ExecutionContext,
+) -> Result<Value, ExecutionError> {
+    tokio::task::spawn_blocking(move || {
+        execute_pipeline(&program, &name, inputs, &registry, &context)
+    })
+    .await
+    .map_err(|error| {
+        failure(
+            "runtime",
+            format!("execution task failed: {error}"),
+            None,
+            false,
+        )
+    })?
 }
 fn execute(
     program: &Program,
@@ -249,13 +355,37 @@ fn execute(
         .pipelines
         .get(name)
         .ok_or_else(|| fail(format!("unknown pipeline '{name}'")))?;
+    let fingerprint = program_fingerprint(program);
+    if let Some(previous) = context
+        .events()
+        .iter()
+        .find(|event| {
+            event.kind == "pipeline_start"
+                && event.fields.get("pipeline").and_then(Value::as_str) == Some(name)
+        })
+        .and_then(|event| {
+            event
+                .fields
+                .get("program_fingerprint")
+                .and_then(Value::as_str)
+        })
+        && previous != fingerprint
+    {
+        return Err(failure(
+            "resume_incompatible",
+            format!("program or deployment changed since execution '{execution_id}' started"),
+            Some(name.into()),
+            false,
+        ));
+    }
     validate_args(&p.params, &inputs, program)?;
     let budget = BudgetState::new(p.budget.clone());
-    let mut env = inputs;
     context.record(
         "pipeline_start",
-        json!({"pipeline":name,"execution_id":execution_id,"budget":p.budget}),
+        json!({"pipeline":name,"execution_id":execution_id,"program_fingerprint":fingerprint,"inputs":inputs,"budget":p.budget}),
     );
+    ensure_persisted(context)?;
+    let mut env = inputs;
     match block(
         &p.statements,
         program,
@@ -327,9 +457,39 @@ fn block(
         budget.check_time()?;
         match s {
             Stmt::Run(r) => {
-                let v = run(r, p, env, reg, ctx, depth, execution_id, budget)?;
+                let v = run(r, p, env, reg, ctx, depth, execution_id, budget, None, None)?;
                 env.insert(r.target.clone(), v);
             }
+            Stmt::Approve {
+                target,
+                approval,
+                prompt,
+                expires_seconds,
+                delegate,
+                ..
+            } => match ctx.approval(approval) {
+                Some(decision) if !ctx.approval_expired(approval, *expires_seconds) => {
+                    ctx.record("human_approval", json!({"execution_id":execution_id,"approval":approval,"decision":decision.approved,"actor":decision.actor,"decided_at_ms":decision.decided_at_ms,"prompt":prompt,"delegate":delegate,"expires_seconds":expires_seconds}));
+                    env.insert(target.clone(), Value::Bool(decision.approved));
+                }
+                Some(_) => {
+                    return Err(failure(
+                        "approval_expired",
+                        format!("approval '{approval}' expired"),
+                        Some(approval.clone()),
+                        false,
+                    ));
+                }
+                None => {
+                    ctx.record("human_suspended", json!({"execution_id":execution_id,"approval":approval,"prompt":prompt,"delegate":delegate,"expires_seconds":expires_seconds}));
+                    return Err(failure(
+                        "suspended",
+                        format!("waiting for approval '{approval}'"),
+                        Some(approval.clone()),
+                        false,
+                    ));
+                }
+            },
             Stmt::Parallel {
                 branches,
                 max_concurrency,
@@ -341,6 +501,7 @@ fn block(
                 for chunk in branches.chunks(width) {
                     let mut handles = Vec::new();
                     for r in chunk.iter().cloned() {
+                        let invocation_id = ctx.next_id("invoke");
                         let (p, e, g, c, execution_id, budget) = (
                             p.clone(),
                             snapshot.clone(),
@@ -350,13 +511,192 @@ fn block(
                             budget.clone(),
                         );
                         handles.push(std::thread::spawn(move || {
-                            run(&r, &p, &e, &g, &c, depth, &execution_id, &budget)
-                                .map(|v| (r.target, v))
+                            run(
+                                &r,
+                                &p,
+                                &e,
+                                &g,
+                                &c,
+                                depth,
+                                &execution_id,
+                                &budget,
+                                None,
+                                Some(invocation_id),
+                            )
+                            .map(|v| (r.target, v))
                         }))
                     }
                     for h in handles {
                         let (k, v) = h.join().map_err(|_| fail("parallel branch panicked"))??;
                         env.insert(k, v);
+                    }
+                }
+            }
+            Stmt::ParallelMap {
+                target,
+                binding,
+                items,
+                run: mapped,
+                max_concurrency,
+                failure_policy,
+                ..
+            } => {
+                let values = eval(items, env)?
+                    .as_array()
+                    .cloned()
+                    .ok_or_else(|| fail("parallel map value is not a list"))?;
+                budget.check_concurrency(*max_concurrency)?;
+                let mut outputs = Vec::with_capacity(values.len());
+                let mut failures = Vec::new();
+                for (chunk_index, chunk) in values.chunks(*max_concurrency).enumerate() {
+                    let mut handles = Vec::new();
+                    for (offset, value) in chunk.iter().cloned().enumerate() {
+                        let invocation_id = ctx.next_id("invoke");
+                        let (p, mut e, g, c, mapped, binding, execution_id, budget) = (
+                            p.clone(),
+                            env.clone(),
+                            reg.clone(),
+                            ctx.clone(),
+                            mapped.clone(),
+                            binding.clone(),
+                            execution_id.to_owned(),
+                            budget.clone(),
+                        );
+                        e.insert(binding, value);
+                        handles.push((
+                            chunk_index * *max_concurrency + offset,
+                            std::thread::spawn(move || {
+                                run(
+                                    &mapped,
+                                    &p,
+                                    &e,
+                                    &g,
+                                    &c,
+                                    depth,
+                                    &execution_id,
+                                    &budget,
+                                    None,
+                                    Some(invocation_id),
+                                )
+                            }),
+                        ));
+                    }
+                    let mut chunk_failed = false;
+                    for (index, handle) in handles {
+                        match handle
+                            .join()
+                            .map_err(|_| fail("parallel map branch panicked"))?
+                        {
+                            Ok(value) => outputs.push((index, value)),
+                            Err(error) => {
+                                chunk_failed = true;
+                                failures.push(error);
+                            }
+                        }
+                    }
+                    if chunk_failed && matches!(failure_policy, FailurePolicy::FailFast) {
+                        break;
+                    }
+                }
+                if !failures.is_empty() {
+                    return Err(failure(
+                        "parallel",
+                        format!(
+                            "{} parallel map branch(es) failed: {}",
+                            failures.len(),
+                            failures
+                                .iter()
+                                .map(|error| error.message.as_str())
+                                .collect::<Vec<_>>()
+                                .join("; ")
+                        ),
+                        Some(target.clone()),
+                        false,
+                    ));
+                }
+                outputs.sort_by_key(|(index, _)| *index);
+                env.insert(
+                    target.clone(),
+                    Value::Array(outputs.into_iter().map(|(_, value)| value).collect()),
+                );
+            }
+            Stmt::Race {
+                target, branches, ..
+            } => {
+                budget.check_concurrency(branches.len())?;
+                let (sender, receiver) = std::sync::mpsc::channel();
+                let mut handles = Vec::new();
+                let mut tokens = Vec::new();
+                for (index, branch) in branches.iter().cloned().enumerate() {
+                    let invocation_id = ctx.next_id("invoke");
+                    let token = CancellationToken::default();
+                    tokens.push(token.clone());
+                    let (p, e, g, c, execution_id, budget, sender) = (
+                        p.clone(),
+                        env.clone(),
+                        reg.clone(),
+                        ctx.clone(),
+                        execution_id.to_owned(),
+                        budget.clone(),
+                        sender.clone(),
+                    );
+                    handles.push(std::thread::spawn(move || {
+                        let result = run(
+                            &branch,
+                            &p,
+                            &e,
+                            &g,
+                            &c,
+                            depth,
+                            &execution_id,
+                            &budget,
+                            Some(token),
+                            Some(invocation_id),
+                        );
+                        let _ = sender.send((index, result));
+                    }));
+                }
+                drop(sender);
+                let mut winner = None;
+                let mut failures = Vec::new();
+                while let Ok((index, result)) = receiver.recv() {
+                    match result {
+                        Ok(value) => {
+                            winner = Some((index, value));
+                            break;
+                        }
+                        Err(error) => failures.push(error),
+                    }
+                }
+                if let Some((winner_index, _)) = &winner {
+                    for (index, token) in tokens.iter().enumerate() {
+                        if index != *winner_index {
+                            token.cancel();
+                        }
+                    }
+                    ctx.record("race_winner", json!({"execution_id":execution_id,"branch":winner_index,"cancelled_losers":branches.len()-1}));
+                }
+                for handle in handles {
+                    handle.join().map_err(|_| fail("race branch panicked"))?;
+                }
+                match winner {
+                    Some((_, value)) => {
+                        env.insert(target.clone(), value);
+                    }
+                    None => {
+                        return Err(failure(
+                            "race",
+                            format!(
+                                "all race branches failed: {}",
+                                failures
+                                    .iter()
+                                    .map(|error| error.message.as_str())
+                                    .collect::<Vec<_>>()
+                                    .join("; ")
+                            ),
+                            Some(target.clone()),
+                            false,
+                        ));
                     }
                 }
             }
@@ -502,6 +842,8 @@ fn run(
     depth: usize,
     execution_id: &str,
     budget: &BudgetState,
+    cancellation: Option<CancellationToken>,
+    invocation_id: Option<String>,
 ) -> Result<Value, ExecutionError> {
     let args = r
         .args
@@ -522,7 +864,7 @@ fn run(
         .get(&r.callable)
         .ok_or_else(|| fail(format!("no handler registered for task '{}'", r.callable)))?;
     let attempts = r.retries + 1;
-    let invocation_id = ctx.next_id("invoke");
+    let invocation_id = invocation_id.unwrap_or_else(|| ctx.next_id("invoke"));
     let idempotency_key = match &task.idempotency {
         Idempotency::KeyedBy(parameter) => args
             .get(parameter)
@@ -533,39 +875,96 @@ fn run(
     };
     let mut last = None;
     let mut attempts_made = 0;
+    if let Some(value) = ctx.take_replay(&invocation_id) {
+        ctx.record("task_replayed", json!({"task":r.callable,"execution_id":execution_id,"invocation_id":invocation_id,"idempotency_key":idempotency_key}));
+        if value_matches(&value, &task.return_type, p) {
+            return Ok(value);
+        }
+        return Err(failure(
+            "replay",
+            "recorded task result is incompatible with the current return type",
+            Some(r.callable.clone()),
+            false,
+        ));
+    }
     for attempt in 1..=attempts {
+        let cancellation = cancellation.clone().unwrap_or_default();
+        if cancellation.is_cancelled() {
+            return Err(failure(
+                "cancelled",
+                "invocation cancelled before attempt",
+                Some(r.callable.clone()),
+                false,
+            ));
+        }
+        let _group = task.concurrency_group.as_ref().map(|group| {
+            ctx.acquire_group(
+                group,
+                task.concurrency_limit.unwrap_or(1),
+                task.rate_limit_per_second,
+            )
+        });
         budget.reserve_call()?;
         let invocation = Invocation {
             execution_id: execution_id.to_owned(),
             invocation_id: invocation_id.clone(),
             idempotency_key: idempotency_key.clone(),
             attempt,
+            cancellation,
+            context: Some(ctx.clone()),
         };
         attempts_made = attempt;
         ctx.record(
             "task_attempt",
             json!({"task":r.callable,"attempt":attempt,"agent":r.agent,"execution_id":execution_id,"invocation_id":invocation_id,"idempotency_key":idempotency_key}),
         );
+        ensure_persisted(ctx)?;
         let result: Result<TaskOutput, ExecutionError> = if let Some(seconds) = r.timeout {
             let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+            let cancellation = invocation.cancellation.clone();
             let (handler, owned_args, agent, invocation) =
                 (h.clone(), args.clone(), r.agent.clone(), invocation.clone());
-            std::thread::spawn(move || {
+            let handle = std::thread::spawn(move || {
                 let _ = sender.send(handler(&owned_args, agent.as_deref(), &invocation));
             });
             match receiver.recv_timeout(std::time::Duration::from_secs_f64(seconds)) {
-                Ok(result) => result
-                    .map_err(|message| failure("task", message, Some(r.callable.clone()), true)),
-                Err(_) => Err(failure(
-                    "timeout",
-                    format!("timed out after {seconds}s"),
-                    Some(r.callable.clone()),
-                    false,
-                )),
+                Ok(result) => {
+                    let _ = handle.join();
+                    result.map_err(|error| {
+                        failure(
+                            error.kind,
+                            error.message,
+                            Some(r.callable.clone()),
+                            error.retryable,
+                        )
+                    })
+                }
+                Err(_) => {
+                    cancellation.cancel();
+                    ctx.record("task_cancelled", json!({"task":r.callable,"execution_id":execution_id,"invocation_id":invocation_id,"reason":"timeout"}));
+                    if receiver
+                        .recv_timeout(std::time::Duration::from_secs(1))
+                        .is_ok()
+                    {
+                        let _ = handle.join();
+                    }
+                    Err(failure(
+                        "timeout",
+                        format!("timed out after {seconds}s"),
+                        Some(r.callable.clone()),
+                        false,
+                    ))
+                }
             }
         } else {
-            h(&args, r.agent.as_deref(), &invocation)
-                .map_err(|message| failure("task", message, Some(r.callable.clone()), true))
+            h(&args, r.agent.as_deref(), &invocation).map_err(|error| {
+                failure(
+                    error.kind,
+                    error.message,
+                    Some(r.callable.clone()),
+                    error.retryable,
+                )
+            })
         };
         match result {
             Ok(output) => {
@@ -573,6 +972,7 @@ fn run(
                 ctx.record("provider_usage", json!({"task":r.callable,"execution_id":execution_id,"invocation_id":invocation_id,"attempt":attempt,"usage":output.usage}));
                 let v = output.value;
                 ctx.record("task_result", json!({"task":r.callable,"execution_id":execution_id,"invocation_id":invocation_id,"attempt":attempt,"result":v}));
+                ensure_persisted(ctx)?;
                 if !value_matches(&v, &task.return_type, p) {
                     return Err(fail(format!(
                         "task '{}' returned incompatible value",
@@ -851,4 +1251,31 @@ fn budget_failure(resource: &str, used: f64, limit: f64) -> ExecutionError {
         Some(resource.into()),
         false,
     )
+}
+
+fn program_fingerprint(program: &Program) -> String {
+    let bytes = serde_json::to_vec(program).unwrap_or_default();
+    let hash = bytes
+        .into_iter()
+        .fold(14_695_981_039_346_656_037_u64, |hash, byte| {
+            (hash ^ u64::from(byte)).wrapping_mul(1_099_511_628_211)
+        });
+    format!("fnv1a64:{hash:016x}")
+}
+
+pub fn content_fingerprint(bytes: &[u8]) -> String {
+    let hash = bytes
+        .iter()
+        .fold(14_695_981_039_346_656_037_u64, |hash, byte| {
+            (hash ^ u64::from(*byte)).wrapping_mul(1_099_511_628_211)
+        });
+    format!("fnv1a64:{hash:016x}")
+}
+
+fn ensure_persisted(context: &ExecutionContext) -> Result<(), ExecutionError> {
+    if let Some(error) = context.persistence_error() {
+        Err(failure("event_store", error, None, false))
+    } else {
+        Ok(())
+    }
 }

@@ -49,6 +49,7 @@ impl AnthropicClient {
 }
 impl ModelClient for AnthropicClient {
     fn complete(&self, r: CompletionRequest<'_>) -> Result<String, AdapterError> {
+        check_cancelled(&r)?;
         let mut p = json!({"model":r.model,"messages":[{"role":"user","content":r.prompt}],"max_tokens":r.max_output_tokens.unwrap_or(1024)});
         if let Some(s) = r.system {
             p["system"] = s.into()
@@ -57,6 +58,7 @@ impl ModelClient for AnthropicClient {
             p["metadata"] = json!({"user_id":key});
         }
         let response = self.message(p)?;
+        check_cancelled(&r)?;
         ensure_complete(&response)?;
         extract_text(&response).ok_or(AdapterError::MissingText(PROVIDER))
     }
@@ -67,10 +69,12 @@ impl ModelClient for AnthropicClient {
         call_tool: &ToolExecutor<'_>,
         max_round_trips: usize,
     ) -> Result<String, AdapterError> {
+        check_cancelled(&r)?;
         let tools: Vec<_> = tools.iter().map(convert_tool).collect();
         let mut messages = vec![json!({"role":"user","content":r.prompt})];
         let mut response = self.message(message_payload(&r, &messages, &tools))?;
         for _ in 0..max_round_trips {
+            check_cancelled(&r)?;
             let uses = tool_uses(&response);
             if uses.is_empty() {
                 ensure_complete(&response)?;
@@ -94,6 +98,16 @@ impl ModelClient for AnthropicClient {
             response = self.message(message_payload(&r, &messages, &tools))?;
         }
         Err(AdapterError::ToolLoopLimit(PROVIDER))
+    }
+}
+fn check_cancelled(request: &CompletionRequest<'_>) -> Result<(), AdapterError> {
+    if request
+        .cancellation
+        .is_some_and(crate::runtime::CancellationToken::is_cancelled)
+    {
+        Err(AdapterError::Cancelled(PROVIDER))
+    } else {
+        Ok(())
     }
 }
 fn message_payload(r: &CompletionRequest<'_>, messages: &[Value], tools: &[Value]) -> Value {
@@ -173,6 +187,7 @@ mod tests {
                     max_output_tokens: None,
                     reasoning_effort: None,
                     idempotency_key: Some("invoke-1"),
+                    cancellation: None,
                 },
                 &[json!({"name":"lookup","parameters":{"type":"object"}})],
                 &|_, _| Ok(json!({"ok":true})),

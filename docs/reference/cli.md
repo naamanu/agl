@@ -27,6 +27,10 @@ cargo run -- <source> <pipeline> [options]
 | `--deployment PATH` | off | Validate and apply provider-neutral agent bindings from JSON |
 | `--eval NAME` | off | Run a declared dataset evaluation and emit a JSON report |
 | `--update-baseline` | off | Replace the selected evaluation's baseline with the current report |
+| `--event-store PATH` | off | Persist events in a local SQLite store |
+| `--execution-id ID` | generated | Stable durable execution identity |
+| `--resume` | off | Replay checkpoints for the selected durable execution |
+| `--approval NAME=BOOL` | — | Supply a persisted approval or rejection; may be repeated |
 | `--trace-live` | off | Emit live model/tool tracing to `stderr` when running with `--adapter live` or `--adapter anthropic` |
 | `--output-trace PATH` | off | Write a structured JSON execution trace to `PATH` after execution |
 | `--plugin MODULE` | — | Load a plugin module (Python file path or dotted module name). May be repeated. |

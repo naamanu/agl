@@ -1,7 +1,7 @@
 use crate::adapters::tools::{ToolRegistry, default_tool_registry, tool_definitions, type_schema};
 use crate::adapters::{AnthropicClient, CompletionRequest, ModelClient, OpenAiClient};
 use crate::ast::{Program, TaskDef, TypeExpr};
-use crate::runtime::{Registry, TaskOutput, Usage};
+use crate::runtime::{HandlerFailure, Registry, TaskOutput, Usage};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
@@ -210,6 +210,7 @@ fn register_live_task(
                 .and_then(|binding| binding.reasoning_effort.as_deref())
                 .or_else(|| (mode == AdapterMode::OpenAi).then_some("medium")),
             idempotency_key: Some(&invocation.idempotency_key),
+            cancellation: Some(&invocation.cancellation),
         };
         let definitions = agent
             .map(|agent| tool_definitions(&program, &agent.tools))
@@ -222,7 +223,7 @@ fn register_live_task(
                 &definitions,
                 &|name, call_args| {
                     tools
-                        .execute(&program, name, call_args)
+                        .execute_contextual(&program, name, call_args, Some(invocation))
                         .map_err(|e| crate::adapters::AdapterError::Tool {
                             tool: name.into(),
                             detail: e.to_string(),
@@ -231,11 +232,15 @@ fn register_live_task(
                 8,
             )
         }
-        .map_err(|e| e.to_string())?;
-        let value = parse_model_json(&task_name, &raw)?;
+        .map_err(|e| HandlerFailure::adapter(e.to_string(), true))?;
+        let value = parse_model_json(&task_name, &raw)
+            .map_err(|error| HandlerFailure::adapter(error, false))?;
         Ok(TaskOutput {
             value,
             usage: Usage {
+                provider: Some(match mode { AdapterMode::OpenAi => "openai", AdapterMode::Anthropic => "anthropic", AdapterMode::Mock => "mock" }.into()),
+                model: Some(model),
+                prompt_fingerprint: Some(crate::runtime::content_fingerprint(prompt.as_bytes())),
                 input_tokens: (prompt.len() as u64).div_ceil(4),
                 output_tokens: (raw.len() as u64).div_ceil(4),
                 cost_usd: 0.0,

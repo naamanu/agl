@@ -25,6 +25,7 @@ pub struct CompletionRequest<'a> {
     pub max_output_tokens: Option<u32>,
     pub reasoning_effort: Option<&'a str>,
     pub idempotency_key: Option<&'a str>,
+    pub cancellation: Option<&'a crate::runtime::CancellationToken>,
 }
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
@@ -54,6 +55,8 @@ pub enum AdapterError {
     },
     #[error("{0} tool-calling loop exceeded max_round_trips")]
     ToolLoopLimit(&'static str),
+    #[error("{0} request was cancelled")]
+    Cancelled(&'static str),
     #[error("unknown tool '{0}'")]
     UnknownTool(String),
     #[error("tool '{tool}' failed: {detail}")]

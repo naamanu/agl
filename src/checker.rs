@@ -16,7 +16,7 @@ impl CheckError {
 }
 type Env = BTreeMap<String, TypeExpr>;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct AnalysisWarning {
     pub code: &'static str,
     pub message: String,

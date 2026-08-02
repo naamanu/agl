@@ -1,0 +1,9 @@
+language "0.6";
+
+public task greet(name: String) -> String idempotency pure {}
+private task helper() -> String idempotency pure {}
+
+public pipeline main(name: String) -> String {
+  let value = greet(name);
+  return value;
+}

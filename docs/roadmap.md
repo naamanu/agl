@@ -72,7 +72,7 @@ Acceptance criteria:
 
 - [x] Add built-in `Result[T, E]` alongside `Option[T]`.
 - [x] Represent current task, timeout, assertion, and runtime faults through structured `Failure` catches.
-- [ ] Add tool/adapter-specific, cancellation, and budget failure categories as those runtime layers gain typed failure propagation.
+- [x] Add tool/adapter-specific, cancellation, and budget failure categories as those runtime layers gain typed failure propagation.
 - [x] Keep explicit `match`; 0.3 deliberately omits implicit propagation syntax.
 - [x] Retain `try/catch` as a boundary for unexpected execution faults, not ordinary typed failures.
 - [x] Make retry selection operate on typed error variants.
@@ -100,7 +100,7 @@ Acceptance criteria:
 - [x] Infer effects through pipeline calls and check that callers permit them.
 - [x] Add user-defined capability names without allowing them to weaken built-in safety rules.
 - [x] Surface declared effect sets in lowered output and the language documentation.
-- [ ] Include inferred effect sets in generated package/API documentation when documentation generation lands in 0.6.
+- [x] Include inferred effect sets in generated package/API documentation when documentation generation lands in 0.6.
 
 ### Retry and idempotency safety
 
@@ -185,34 +185,34 @@ Acceptance criteria:
 
 ### Modules and visibility
 
-- [ ] Add imports, qualified names, and explicit public/private declarations.
-- [ ] Specify deterministic local module resolution and cycle diagnostics.
-- [ ] Support separate compilation and cache validated module interfaces.
-- [ ] Add documentation generation from exported declarations.
+- [x] Add imports, qualified names, and explicit public/private declarations.
+- [x] Specify deterministic local module resolution and cycle diagnostics.
+- [x] Support separate compilation and cache validated module interfaces.
+- [x] Add documentation generation from exported declarations.
 
 ### Packages and compatibility
 
-- [ ] Add an AGL package manifest with language and package versions.
-- [ ] Support local-path and pinned Git dependencies first.
-- [ ] Add a deterministic lockfile and content verification.
-- [ ] Define semantic-version compatibility rules for exported AGL APIs.
-- [ ] Defer a public package registry until real reuse patterns justify it.
+- [x] Add an AGL package manifest with language and package versions.
+- [x] Support local-path and pinned Git dependencies first.
+- [x] Add a deterministic lockfile and content verification.
+- [x] Define semantic-version compatibility rules for exported AGL APIs.
+- [x] Defer a public package registry until real reuse patterns justify it.
 
 ### Language tooling
 
-- [ ] Publish a tree-sitter grammar or equivalent incremental parser integration.
-- [ ] Implement an LSP with diagnostics, hover, completion, definition, references, and rename.
-- [ ] Add canonical formatting and format-on-save support.
-- [ ] Add a machine-readable compiler protocol for editor and build-tool integration.
-- [ ] Provide shell completion and structured CLI output.
+- [x] Publish a tree-sitter grammar or equivalent incremental parser integration.
+- [x] Implement an LSP with diagnostics, hover, completion, definition, references, and rename.
+- [x] Add canonical formatting and format-on-save support.
+- [x] Add a machine-readable compiler protocol for editor and build-tool integration.
+- [x] Provide shell completion and structured CLI output.
 
 ### Stable embedding and extension API
 
-- [ ] Define versioned Rust traits and data contracts for hosts, task handlers, tools, event stores, policy resolvers, and graders.
-- [ ] Add compatibility tests for extension implementations.
-- [ ] Keep compile-time Rust registration as the default native extension model.
-- [ ] Version the Python subprocess protocol and document its deprecation criteria.
-- [ ] Evaluate a process-isolated WASI component boundary only after the native contracts stabilize.
+- [x] Define versioned Rust traits and data contracts for hosts, task handlers, tools, event stores, policy resolvers, and graders.
+- [x] Add compatibility tests for extension implementations.
+- [x] Keep compile-time Rust registration as the default native extension model.
+- [x] Version the Python subprocess protocol and document its deprecation criteria.
+- [x] Evaluate a process-isolated WASI component boundary only after the native contracts stabilize.
 
 Acceptance criteria:
 
@@ -226,11 +226,11 @@ Acceptance criteria:
 These requirements apply throughout phases 0.3–0.6 rather than being deferred to one release.
 
 - [x] Redact secrets from diagnostics, traces, event histories, and evaluation artifacts.
-- [ ] Restrict tools by declared capabilities and deployment policy.
+- [x] Restrict tools by declared capabilities and deployment policy.
 - [x] Track model, prompt, tool, source, and human-approval provenance.
-- [ ] Add configurable network-host and filesystem-path allowlists.
-- [ ] Make external writes and approval requirements visible in static summaries.
-- [ ] Define trust boundaries for native, Python, and future process-isolated extensions.
+- [x] Add configurable network-host and filesystem-path allowlists.
+- [x] Make external writes and approval requirements visible in static summaries.
+- [x] Define trust boundaries for native, Python, and future process-isolated extensions.
 
 ## Deliberate non-goals
 

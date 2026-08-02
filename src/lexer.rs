@@ -120,6 +120,10 @@ const KEYWORDS: &[&str] = &[
     "concurrency_group",
     "concurrency_limit",
     "rate_limit",
+    "import",
+    "from",
+    "public",
+    "private",
 ];
 
 pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {

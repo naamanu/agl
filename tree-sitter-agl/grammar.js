@@ -1,0 +1,35 @@
+module.exports = grammar({
+  name: 'agl',
+  extras: $ => [/\s/, $.comment],
+  word: $ => $.identifier,
+  rules: {
+    source_file: $ => seq(optional($.language), repeat(choice($.import, $.declaration))),
+    language: $ => seq('language', $.string, ';'),
+    import: $ => seq('import', $.identifier, 'from', $.string, ';'),
+    declaration: $ => seq(optional(choice('public', 'private')), choice($.agent, $.task, $.tool, $.pipeline, $.record, $.union, $.enum, $.test, $.eval)),
+    agent: $ => seq('agent', $.identifier, $.block),
+    task: $ => seq('task', $.identifier, $.signature, repeat($.clause), $.block),
+    tool: $ => seq('tool', $.identifier, $.signature, repeat($.clause), $.block),
+    pipeline: $ => seq('pipeline', $.identifier, $.signature, repeat($.clause), $.block),
+    record: $ => seq('record', $.identifier, $.block, ';'),
+    union: $ => seq('union', $.identifier, $.block, ';'),
+    enum: $ => seq('enum', $.identifier, $.block, ';'),
+    test: $ => seq('test', $.string, $.block),
+    eval: $ => seq('eval', $.identifier, $.block),
+    signature: $ => seq('(', optional(commaSep($.parameter)), ')', '->', $.type),
+    parameter: $ => seq($.identifier, ':', $.type),
+    type: $ => seq($.qualified_identifier, optional(seq('[', commaSep($.type), ']'))),
+    clause: $ => choice(seq('effects', '[', optional(commaSep($.identifier)), ']'), seq('idempotency', choice('pure', 'idempotent', 'non_idempotent', seq('keyed_by', $.identifier))), seq(choice('budget', 'backoff'), $.block), seq(choice('concurrency_group', 'concurrency_limit', 'rate_limit'), choice($.identifier, $.number))),
+    block: $ => seq('{', repeat(choice($.statement, $.field, $.identifier, $.string, $.number, ',', ':')), '}'),
+    statement: $ => seq(choice('let', 'return', 'if', 'while', 'parallel', 'race', 'match', 'try', 'assert'), repeat(choice($.qualified_identifier, $.string, $.number, $.symbol)), optional(';')),
+    field: $ => seq($.identifier, ':', choice($.qualified_identifier, $.string, $.number)),
+    qualified_identifier: $ => seq($.identifier, repeat(seq('::', $.identifier))),
+    identifier: _ => /[A-Za-z_][A-Za-z0-9_]*/,
+    string: _ => /"([^"\\]|\\.)*"/,
+    number: _ => /[0-9]+(\.[0-9]+)?/,
+    symbol: _ => /[^{};\s]+/,
+    comment: _ => token(seq('--', /.*/)),
+  }
+});
+
+function commaSep(rule) { return seq(rule, repeat(seq(',', rule))); }

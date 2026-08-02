@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
-pub const CURRENT_LANGUAGE_VERSION: &str = "0.5";
-pub const SUPPORTED_LANGUAGE_VERSIONS: &[&str] = &["0.2", "0.3", "0.4", "0.5"];
+pub const CURRENT_LANGUAGE_VERSION: &str = "0.6";
+pub const SUPPORTED_LANGUAGE_VERSIONS: &[&str] = &["0.2", "0.3", "0.4", "0.5", "0.6"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Span {
@@ -370,6 +370,8 @@ pub struct Program {
     pub enums: BTreeMap<String, Vec<String>>,
     pub tests: Vec<TestBlock>,
     pub evals: BTreeMap<String, EvalDef>,
+    pub imports: BTreeMap<String, String>,
+    pub public: BTreeSet<String>,
 }
 
 impl Default for Program {
@@ -386,6 +388,8 @@ impl Default for Program {
             enums: BTreeMap::new(),
             tests: Vec::new(),
             evals: BTreeMap::new(),
+            imports: BTreeMap::new(),
+            public: BTreeSet::new(),
         }
     }
 }

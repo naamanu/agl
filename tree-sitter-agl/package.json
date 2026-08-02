@@ -1,0 +1,8 @@
+{
+  "name": "tree-sitter-agl",
+  "version": "0.6.0",
+  "main": "bindings/node",
+  "tree-sitter": [
+    { "scope": "source.agl", "file-types": ["agent", "agl"], "highlights": "queries/highlights.scm" }
+  ]
+}

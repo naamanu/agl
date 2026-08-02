@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.0 — Unreleased
+
+- Add modules, qualified names, public/private visibility, cycle checks, and cached interfaces.
+- Add manifests, deterministic local/Git locks, content integrity, API compatibility reports, and generated effect-aware docs.
+- Add canonical formatting, compiler protocol, LSP, tree-sitter grammar, shell completions, and structured summaries.
+- Add versioned Rust extension contracts, versioned Python envelopes, deployment policies, host/path allowlists, and documented trust boundaries.
+
 ## 0.5.0 — Unreleased
 
 - Add async embedding, cooperative timeout/race cancellation, ordered bounded parallel map, failure policies, concurrency groups, and rate limits.

@@ -3,6 +3,7 @@
 //! The crate exposes each compiler phase separately so applications can parse,
 //! check, inspect, and execute AGL without shelling out to the CLI.
 
+pub mod adapters;
 pub mod ast;
 pub mod checker;
 pub mod context;

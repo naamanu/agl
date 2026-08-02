@@ -59,7 +59,12 @@ impl ModelClient for OpenAiClient {
         if let Some(max) = request.max_output_tokens {
             payload["max_output_tokens"] = max.into();
         }
-        extract_text(&self.response(payload)?).ok_or(AdapterError::MissingText(PROVIDER))
+        if let Some(effort) = request.reasoning_effort {
+            payload["reasoning"] = json!({"effort":effort});
+        }
+        let response = self.response(payload)?;
+        ensure_complete(&response)?;
+        extract_text(&response).ok_or(AdapterError::MissingText(PROVIDER))
     }
 
     fn complete_with_tools(
@@ -73,10 +78,14 @@ impl ModelClient for OpenAiClient {
         if let Some(max) = request.max_output_tokens {
             payload["max_output_tokens"] = max.into();
         }
+        if let Some(effort) = request.reasoning_effort {
+            payload["reasoning"] = json!({"effort":effort});
+        }
         let mut response = self.response(payload)?;
         for _ in 0..max_round_trips {
             let calls = function_calls(&response)?;
             if calls.is_empty() {
+                ensure_complete(&response)?;
                 return extract_text(&response).ok_or(AdapterError::MissingText(PROVIDER));
             }
             let mut outputs = Vec::new();
@@ -101,6 +110,9 @@ impl ModelClient for OpenAiClient {
             let mut next = json!({"model":request.model,"input":outputs,"tools":tools,"previous_response_id":response.get("id").and_then(Value::as_str)});
             if let Some(max) = request.max_output_tokens {
                 next["max_output_tokens"] = max.into();
+            }
+            if let Some(effort) = request.reasoning_effort {
+                next["reasoning"] = json!({"effort":effort});
             }
             response = self.response(next)?;
         }
@@ -135,6 +147,19 @@ fn extract_text(v: &Value) -> Option<String> {
         .map(str::trim)
         .collect();
     (!parts.is_empty()).then(|| parts.join("\n"))
+}
+fn ensure_complete(value: &Value) -> Result<(), AdapterError> {
+    if value.get("status").and_then(Value::as_str) == Some("incomplete") {
+        let reason = value
+            .pointer("/incomplete_details/reason")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown reason");
+        return Err(AdapterError::Incomplete {
+            provider: PROVIDER,
+            reason: reason.into(),
+        });
+    }
+    Ok(())
 }
 struct FunctionCall {
     name: String,
@@ -192,6 +217,7 @@ mod tests {
                     prompt: "go",
                     system: None,
                     max_output_tokens: None,
+                    reasoning_effort: Some("medium"),
                 },
                 &[json!({"type":"function","name":"lookup","parameters":{"type":"object"}})],
                 &|name, args| Ok(json!({"name":name,"q":args["q"]})),
@@ -199,6 +225,10 @@ mod tests {
             )
             .unwrap();
         assert_eq!(text, "done");
-        assert_eq!(fake.requests.lock().unwrap().len(), 2)
+        assert_eq!(fake.requests.lock().unwrap().len(), 2);
+        assert_eq!(
+            fake.requests.lock().unwrap()[0]["reasoning"]["effort"],
+            "medium"
+        );
     }
 }

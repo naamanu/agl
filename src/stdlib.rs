@@ -158,10 +158,12 @@ fn register_live_task(
     let task_name = task.name.clone();
     registry.register(task_name.clone(), move |args, agent_name| {
         let agent = agent_name.and_then(|name| program.agents.get(name));
-        let model = agent
-            .and_then(|agent| agent.model.as_deref())
-            .map(|model| map_model(mode, model))
-            .unwrap_or_else(|| default_model(mode).into());
+        let model = configured_model(mode).unwrap_or_else(|| {
+            agent
+                .and_then(|agent| agent.model.as_deref())
+                .map(|model| map_model(mode, model))
+                .unwrap_or_else(|| default_model(mode).into())
+        });
         let schema = type_schema(&program, &task.return_type);
         let prompt = format!(
             "Task name: {}\nTask inputs:\n{}\n\nReturn schema:\n{}\n\nReturn only minified valid JSON on one line, without markdown fences or commentary.",
@@ -184,6 +186,7 @@ fn register_live_task(
                 "You execute typed AGL tasks. Use tools when helpful and satisfy the declared JSON schema exactly.",
             ),
             max_output_tokens: Some(1800),
+            reasoning_effort: (mode == AdapterMode::OpenAi).then_some("medium"),
         };
         let definitions = agent
             .map(|agent| tool_definitions(&program, &agent.tools))
@@ -234,14 +237,21 @@ fn parse_model_json(task: &str, raw: &str) -> Result<Value, String> {
 
 fn default_model(mode: AdapterMode) -> &'static str {
     match mode {
-        AdapterMode::OpenAi => "gpt-4.1-mini",
+        AdapterMode::OpenAi => "gpt-5.6-sol",
         AdapterMode::Anthropic => "claude-haiku-4-5-20251001",
         AdapterMode::Mock => "mock",
     }
 }
 
 fn map_model(mode: AdapterMode, model: &str) -> String {
-    if mode != AdapterMode::Anthropic {
+    if mode == AdapterMode::OpenAi {
+        return match model {
+            "gpt-4.1" | "gpt-4o" => "gpt-5.6-sol".into(),
+            "gpt-4.1-mini" | "gpt-4o-mini" => "gpt-5.6-luna".into(),
+            _ => model.into(),
+        };
+    }
+    if mode == AdapterMode::Mock {
         return model.into();
     }
     match model {
@@ -250,9 +260,22 @@ fn map_model(mode: AdapterMode, model: &str) -> String {
         _ => model.into(),
     }
 }
+
+fn configured_model(mode: AdapterMode) -> Option<String> {
+    let name = match mode {
+        AdapterMode::OpenAi => "AGL_OPENAI_MODEL",
+        AdapterMode::Anthropic => "AGL_ANTHROPIC_MODEL",
+        AdapterMode::Mock => return None,
+    };
+    std::env::var(name)
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+}
+
 fn s<'a>(a: &'a BTreeMap<String, Value>, k: &str) -> &'a str {
     a.get(k).and_then(Value::as_str).unwrap_or("")
 }
+
 fn number(value: f64) -> Value {
     if value.fract() == 0.0 {
         Value::from(value as i64)
@@ -311,5 +334,23 @@ fn mock(
                     .collect(),
             )
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn maps_legacy_openai_models_by_tier() {
+        assert_eq!(map_model(AdapterMode::OpenAi, "gpt-4.1"), "gpt-5.6-sol");
+        assert_eq!(
+            map_model(AdapterMode::OpenAi, "gpt-4.1-mini"),
+            "gpt-5.6-luna"
+        );
+        assert_eq!(
+            map_model(AdapterMode::OpenAi, "custom-model"),
+            "custom-model"
+        );
     }
 }

@@ -1,0 +1,43 @@
+name: Live Provider Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      provider:
+        description: Provider to test
+        required: true
+        default: openai
+        type: choice
+        options: [openai, anthropic]
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.94.1
+
+      - name: OpenAI smoke test
+        if: inputs.provider == 'openai'
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          AGL_OPENAI_MODEL: ${{ vars.AGL_OPENAI_MODEL || 'gpt-5.6-sol' }}
+        run: |
+          test -n "$OPENAI_API_KEY" || { echo 'OPENAI_API_KEY secret is missing'; exit 1; }
+          cargo test --locked --test live_providers openai_live_completion -- --ignored --exact
+          cargo run --locked -- examples/agent_task.agent investigate --adapter openai --input '{"topic":"AGL provider smoke test"}'
+
+      - name: Anthropic smoke test
+        if: inputs.provider == 'anthropic'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          AGL_ANTHROPIC_MODEL: ${{ vars.AGL_ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001' }}
+        run: |
+          test -n "$ANTHROPIC_API_KEY" || { echo 'ANTHROPIC_API_KEY secret is missing'; exit 1; }
+          cargo test --locked --test live_providers anthropic_live_completion -- --ignored --exact
+          cargo run --locked -- examples/agent_task.agent investigate --adapter anthropic --input '{"topic":"AGL provider smoke test"}'

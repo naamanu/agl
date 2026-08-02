@@ -26,6 +26,14 @@ AGL 0.2 introduces a native Rust implementation while preserving the Python impl
 
 All checked-in `.agent` examples are parsed and checked by the Rust integration suite. A differential test executes the blog, support-routing, comparison, and retry pipelines through both implementations and requires identical JSON results.
 
+The native runtime benchmark uses two 25 ms handlers. On an Apple Silicon development machine it measured 57.77 ms sequentially and 29.23 ms in parallel, a 1.98x speedup over 12 iterations. Treat this as a reproducible smoke benchmark rather than a general performance claim; run `cargo bench --bench runtime` on each target platform.
+
+## Provider configuration
+
+OpenAI defaults to `gpt-5.6-sol` with medium reasoning effort. Legacy `gpt-4.1`/`gpt-4o` declarations map to Sol, while legacy mini declarations map to `gpt-5.6-luna`. Set `AGL_OPENAI_MODEL` to override routing globally. Anthropic can be overridden with `AGL_ANTHROPIC_MODEL`.
+
+Real-provider tests are ignored during ordinary local and pull-request test runs because they are billable. Use `.github/workflows/live-smoke.yml` or run the ignored tests explicitly after setting the relevant API key.
+
 ## Embedding
 
 The crate is library-first:
@@ -47,3 +55,5 @@ python3 -m unittest discover -s tests
 ```
 
 The Python suite remains required while the reference implementation is retained. Python task and tool plugins run through an isolated JSON subprocess bridge; native applications should use the Rust `Registry` and `ToolRegistry` APIs.
+
+See [Native extensions and plugin migration](native-extensions.md) and [Releasing](releasing.md).

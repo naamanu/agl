@@ -2,8 +2,22 @@
 name = "agl"
 version = "0.2.0"
 edition = "2024"
+rust-version = "1.94"
 description = "A tiny typed DSL for agentic applications"
 license = "MIT"
+repository = "https://github.com/naamanu/agl"
+homepage = "https://nanamanu.com/agl"
+keywords = ["agents", "dsl", "workflow", "llm"]
+categories = ["compilers", "command-line-utilities"]
+include = [
+  "Cargo.toml",
+  "Cargo.lock",
+  "src/**",
+  "tests/**",
+  "examples/**",
+  "README.md",
+  "LICENSE",
+]
 
 [lib]
 name = "agl"

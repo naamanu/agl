@@ -31,6 +31,16 @@ pub fn registry_for(
     mode: AdapterMode,
     trace_live: bool,
 ) -> Result<Registry, String> {
+    let tools = default_tool_registry(Duration::from_secs(15)).map_err(|e| e.to_string())?;
+    registry_for_with_tools(program, mode, trace_live, tools)
+}
+
+pub fn registry_for_with_tools(
+    program: &Program,
+    mode: AdapterMode,
+    trace_live: bool,
+    tools: ToolRegistry,
+) -> Result<Registry, String> {
     let mut registry = default_registry(program);
     if mode == AdapterMode::Mock {
         return Ok(registry);
@@ -48,8 +58,7 @@ pub fn registry_for(
         }
         AdapterMode::Mock => unreachable!(),
     };
-    let tools =
-        Arc::new(default_tool_registry(Duration::from_secs(15)).map_err(|e| e.to_string())?);
+    let tools = Arc::new(tools);
     let live_names = ["research", "draft", "compare", "respond", "llm_complete"];
     for task in program
         .tasks

@@ -1,12 +1,14 @@
+use agl::adapters::tools::default_tool_registry;
 use agl::context::ExecutionContext;
-use agl::plugins::load_python_plugin;
-use agl::stdlib::{AdapterMode, registry_for};
+use agl::plugins::load_python_plugin_with_tools;
+use agl::stdlib::{AdapterMode, registry_for_with_tools};
 use agl::{check_program, execute_pipeline, format_pipeline, parse_program, run_tests};
 use clap::Parser;
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::io::{self, Write};
 use std::path::PathBuf;
+use std::time::Duration;
 
 #[derive(Parser)]
 #[command(name = "agl", version, about = "Run typed AGL agent workflows")]
@@ -38,6 +40,8 @@ struct ReplCli {
     adapter: String,
     #[arg(long)]
     trace_live: bool,
+    #[arg(long = "plugin")]
+    plugins: Vec<String>,
 }
 
 fn main() {
@@ -133,7 +137,7 @@ fn repl() -> Result<(), Box<dyn std::error::Error>> {
                     let raw: Value = serde_json::from_str(raw_input.trim())?;
                     let object = raw.as_object().ok_or("input JSON must be an object")?;
                     let inputs = object.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-                    let registry = registry_for(program, mode, args.trace_live)?;
+                    let registry = build_registry(program, mode, args.trace_live, &args.plugins)?;
                     Ok(execute_pipeline(
                         program,
                         name,
@@ -183,14 +187,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         println!("OK: {}", cli.source.display());
         return Ok(());
     }
-    let mut registry = registry_for(
+    let registry = build_registry(
         &program,
         cli.adapter.parse::<AdapterMode>()?,
         cli.trace_live,
+        &cli.plugins,
     )?;
-    for plugin in cli.plugins {
-        load_python_plugin(&mut registry, plugin)?;
-    }
     let context = ExecutionContext::default();
     if cli.test {
         let results = run_tests(&program, &registry, &context);
@@ -224,4 +226,20 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         std::fs::write(path, serde_json::to_string_pretty(&context.events())?)?
     }
     Ok(())
+}
+
+fn build_registry(
+    program: &agl::ast::Program,
+    mode: AdapterMode,
+    trace_live: bool,
+    plugins: &[String],
+) -> Result<agl::Registry, Box<dyn std::error::Error>> {
+    let mut tools = default_tool_registry(Duration::from_secs(15))?;
+    let mut plugin_tasks = agl::Registry::default();
+    for plugin in plugins {
+        load_python_plugin_with_tools(&mut plugin_tasks, Some(&mut tools), plugin.clone())?;
+    }
+    let mut registry = registry_for_with_tools(program, mode, trace_live, tools)?;
+    registry.extend(plugin_tasks);
+    Ok(registry)
 }

@@ -32,7 +32,7 @@ Obj{intent: String, urgency: String}
 Obj{article: String}
 ```
 
-Object types are **exact** — a value must have exactly the declared fields, no more and no fewer.
+Object types are **open structural requirements**. A value must contain every declared field with a compatible type, but may contain additional fields. Those additional fields remain present at runtime, although they cannot be accessed through a static type that does not declare them.
 
 ## String escape sequences
 
@@ -123,7 +123,7 @@ Enum names must be unique. Variant names must be unique within an enum.
 At runtime, the `--input` JSON is also validated against declared pipeline param types before execution begins:
 
 ```bash
-python main.py examples/blog.agent blog_post \
+cargo run -- examples/blog.agent blog_post \
   --input '{"topic": 42}'
 # Execution error: Pipeline 'blog_post' input 'topic' has invalid value 42 for type String.
 ```

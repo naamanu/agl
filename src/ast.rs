@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+pub const CURRENT_LANGUAGE_VERSION: &str = "0.2";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Span {
     pub line: usize,
@@ -180,8 +182,9 @@ pub struct TestBlock {
     pub statements: Vec<Stmt>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Program {
+    pub language_version: String,
     pub agents: BTreeMap<String, AgentDef>,
     pub tools: BTreeMap<String, ToolDef>,
     pub tasks: BTreeMap<String, TaskDef>,
@@ -189,4 +192,19 @@ pub struct Program {
     pub aliases: BTreeMap<String, TypeExpr>,
     pub enums: BTreeMap<String, Vec<String>>,
     pub tests: Vec<TestBlock>,
+}
+
+impl Default for Program {
+    fn default() -> Self {
+        Self {
+            language_version: CURRENT_LANGUAGE_VERSION.into(),
+            agents: BTreeMap::new(),
+            tools: BTreeMap::new(),
+            tasks: BTreeMap::new(),
+            pipelines: BTreeMap::new(),
+            aliases: BTreeMap::new(),
+            enums: BTreeMap::new(),
+            tests: Vec::new(),
+        }
+    }
 }

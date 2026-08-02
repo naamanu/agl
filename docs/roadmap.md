@@ -32,16 +32,17 @@ An item is not complete merely because its parser accepts new syntax. Completion
 
 This phase prevents the implementation, documentation, and paper from becoming competing definitions of AGL.
 
-- [ ] Create a normative, versioned AGL 0.2 specification.
-- [ ] Declare the Rust implementation normative and define the Python implementation's compatibility role.
-- [ ] Resolve whether objects are exact or use width/depth structural subtyping.
-- [ ] Reconcile current CLI names, adapter names, environment variables, and defaults.
-- [ ] Define lexical, grammar, name-resolution, typing, and execution behavior separately.
-- [ ] Add valid and invalid fixture directories with machine-readable expectations.
-- [ ] Add a conformance runner that checks parsing, diagnostics, lowering, and execution.
-- [ ] Add stable diagnostic codes and golden diagnostic rendering.
-- [ ] Define a language-version mechanism and unsupported-version diagnostic.
-- [ ] Update the paper with a clear historical-versus-current specification boundary.
+- [x] Create a normative, versioned AGL 0.2 specification.
+- [x] Declare the Rust implementation normative and define the Python implementation's compatibility role.
+- [x] Resolve whether objects are exact or use width/depth structural subtyping.
+- [x] Reconcile current CLI names, adapter names, environment variables, and defaults.
+- [x] Define lexical, grammar, name-resolution, typing, and execution behavior separately.
+- [x] Add valid and invalid fixture directories with machine-readable expectations.
+- [x] Add a conformance runner that checks parsing, diagnostics, lowering, and execution.
+- [x] Add stable phase diagnostic codes.
+- [ ] Add golden source rendering as part of AGL 0.3 diagnostics.
+- [x] Define a language-version mechanism and unsupported-version diagnostic.
+- [x] Update the paper with a clear historical-versus-current specification boundary.
 
 Acceptance criteria:
 

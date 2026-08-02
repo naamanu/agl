@@ -1,0 +1,3 @@
+pipeline available() -> String {
+  return "ok";
+}

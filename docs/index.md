@@ -2,7 +2,7 @@
 
 **A tiny, self-contained DSL for agentic workflows.**
 
-Define agents, typed tasks, declarative workflows, and explicit pipelines — then run them with deterministic mock adapters or live LLM backends (OpenAI or Anthropic/Claude). No framework. No magic. Everything compiles from source to execution in Python.
+Define agents, typed tasks, declarative workflows, and explicit pipelines — then run them with deterministic mock adapters or live LLM backends (OpenAI or Anthropic/Claude). No framework. No magic. Everything compiles from source to execution in the native Rust implementation.
 
 ```agentlang
 tool web_search(query: String) -> List[Obj{title: String, url: String, snippet: String}] {}
@@ -29,7 +29,7 @@ workflow publish_topic_blog(topic: String) -> String {
 ```
 
 ```bash
-$ python main.py examples/blog.agent blog_post \
+$ cargo run -- examples/blog.agent blog_post \
     --input '{"topic":"agent memory patterns"}'
 {
   "result": "[writer] Draft article:\n[planner] key points for 'agent memory patterns'"

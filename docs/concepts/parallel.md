@@ -28,7 +28,7 @@ pipeline compare_options(query: String) -> String {
 ```
 
 ```bash
-python main.py examples/compare.agent compare_options \
+cargo run -- examples/compare.agent compare_options \
   --input '{"query":"vector database"}'
 ```
 
@@ -60,7 +60,7 @@ There are two levels of concurrency control:
 **Global:** The `--workers` flag sets the maximum number of concurrent threads across all parallel blocks:
 
 ```bash
-python main.py examples/compare.agent compare_options \
+cargo run -- examples/compare.agent compare_options \
   --input '{"query":"vector database"}' \
   --workers 4
 ```

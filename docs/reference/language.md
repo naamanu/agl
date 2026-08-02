@@ -4,9 +4,11 @@ Complete syntax reference for AgentLang v0.
 
 ## File structure
 
-An `.agent` file contains any number of `type` aliases, `enum` definitions, `agent`, `tool`, `task`, `pipeline`, `workflow`, and `test` declarations in any order. Names must be unique across each declaration type.
+An `.agent` file may begin with `language "0.2";`, then contains any number of `type` aliases, `enum` definitions, `agent`, `tool`, `task`, `pipeline`, `workflow`, and `test` declarations. When the version declaration is omitted, AGL 0.2 is assumed. Unsupported explicit versions are rejected rather than silently reinterpreted. Names must be unique across each declaration type.
 
 ```agentlang
+language "0.2";
+
 -- type aliases and enums
 type Notes = Obj{notes: String};
 enum Tone { formal, casual };
@@ -87,7 +89,7 @@ agent <name> {
 | `model` | No | Model name string literal (defaults to `None`) |
 | `tools` | Yes | List of tool identifiers (may be empty `[]`) |
 
-When `model` is omitted, the runtime uses the `AGENTLANG_DEFAULT_MODEL` environment variable (live/anthropic mode) or the default mock handler. In anthropic mode, OpenAI model names are automatically mapped to Claude equivalents.
+When `model` is omitted, the native runtime uses its provider default. Set `AGL_OPENAI_MODEL` or `AGL_ANTHROPIC_MODEL` to override model routing globally for a deployment. Legacy OpenAI model declarations are mapped by capability tier when using a native provider adapter.
 
 ```agentlang
 -- with explicit model
@@ -157,7 +159,7 @@ workflow <name>( <params> ) -> <type> {
 }
 ```
 
-`workflow` is the high-level authoring surface. It compiles to an ordinary `pipeline` before type-checking and execution. Use `python main.py <file> <name> --lower` to inspect the lowered pipeline IR.
+`workflow` is the high-level authoring surface. It compiles to an ordinary `pipeline` before type-checking and execution. Use `cargo run -- <file> <name> --lower` to inspect the lowered pipeline IR.
 
 Constraints: workflow names unique, at least one `return`, and workflow names may not collide with pipeline names.
 

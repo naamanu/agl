@@ -1,0 +1,5 @@
+{
+  "source": "invalid/semantic.agent",
+  "phase": "reject",
+  "code": "AGL1002"
+}

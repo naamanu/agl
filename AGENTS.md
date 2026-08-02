@@ -23,7 +23,7 @@ Live OpenAI and Anthropic tests are ignored by default because they are billable
 
 Use the pinned stable Rust toolchain, standard `rustfmt`, `snake_case` for functions and modules, and `PascalCase` for types and traits. Prefer typed errors and explicit state transitions over silent fallbacks. Keep public APIs documented where intent is not obvious.
 
-For language changes, update the Rust AST/parser/checker/runtime and relevant documentation together. Until the Python compatibility layer is formally retired, update it too and extend the differential tests whenever both implementations should agree.
+For language changes, update the versioned normative specification in `spec/`, the Rust AST/parser/checker/runtime, and relevant documentation together. Until the Python compatibility layer is formally retired, update it too and extend the differential tests whenever both implementations should agree.
 
 ## Testing Guidelines
 
@@ -33,7 +33,7 @@ Minimum validation for each change:
 2. Run the Python compatibility suite when changing shared semantics.
 3. Run at least one representative CLI or embedding example for user-visible behavior.
 4. Update differential tests for parser, checker, lowering, or runtime changes.
-5. Update reference docs and migration notes when syntax, semantics, providers, or extension APIs change.
+5. Update conformance fixtures, the normative specification, reference docs, and migration notes when syntax, semantics, providers, or extension APIs change.
 
 Provider changes additionally require the relevant opt-in live smoke workflow before release. Do not turn billable network tests into default CI jobs.
 

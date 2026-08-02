@@ -32,7 +32,7 @@ pipeline blog_post(topic: String) -> String {
 ```
 
 ```bash
-python main.py examples/blog.agent blog_post \
+cargo run -- examples/blog.agent blog_post \
   --input '{"topic":"agent memory patterns"}'
 ```
 
@@ -76,7 +76,7 @@ pipeline compare_options(query: String) -> String {
 ```
 
 ```bash
-python main.py examples/compare.agent compare_options \
+cargo run -- examples/compare.agent compare_options \
   --input '{"query":"vector database"}'
 ```
 
@@ -111,7 +111,7 @@ pipeline support_reply(message: String) -> String {
 ```
 
 ```bash
-python main.py examples/support.agent support_reply \
+cargo run -- examples/support.agent support_reply \
   --input '{"message":"urgent refund request"}'
 ```
 
@@ -156,7 +156,7 @@ pipeline resilient_brief(topic: String, fail_count: Number) -> String {
 Run — succeeds within retry budget (`fail_count: 1` < `retries 2`):
 
 ```bash
-python main.py examples/reliability.agent resilient_brief \
+cargo run -- examples/reliability.agent resilient_brief \
   --input '{"topic":"api-status","fail_count":1}'
 ```
 
@@ -169,7 +169,7 @@ python main.py examples/reliability.agent resilient_brief \
 Run — exhausts retries, uses fallback (`fail_count: 5` > `retries 2`):
 
 ```bash
-python main.py examples/reliability.agent resilient_brief \
+cargo run -- examples/reliability.agent resilient_brief \
   --input '{"topic":"api-status","fail_count":5}'
 ```
 
@@ -204,7 +204,7 @@ pipeline answer(question: String) -> String {
 Mock mode:
 
 ```bash
-python main.py examples/live_answer.agent answer \
+cargo run -- examples/live_answer.agent answer \
   --input '{"question":"What is an agentic workflow?"}'
 ```
 
@@ -219,7 +219,7 @@ Live mode:
 ```bash
 export OPENAI_API_KEY="sk-..."
 
-python main.py examples/live_answer.agent answer \
+cargo run -- examples/live_answer.agent answer \
   --adapter live \
   --input '{"question":"What is an agentic workflow?"}'
 ```
@@ -269,7 +269,7 @@ pipeline executive_brief(product: String, competitor_a: String, competitor_b: St
 Mock mode:
 
 ```bash
-python main.py examples/complete_agent.agent executive_brief \
+cargo run -- examples/complete_agent.agent executive_brief \
   --input '{"product":"team chat","competitor_a":"Slack","competitor_b":"Microsoft Teams"}'
 ```
 
@@ -295,7 +295,7 @@ pipeline declared_tool_name(query: String) -> String {
 ```
 
 ```bash
-python main.py examples/tool_declarations.agent declared_tool_name \
+cargo run -- examples/tool_declarations.agent declared_tool_name \
   --input '{"query":"web_search"}'
 ```
 
@@ -328,7 +328,7 @@ pipeline notes(topic: String) -> String {
 ```
 
 ```bash
-python main.py examples/tool_backed_research.agent notes \
+cargo run -- examples/tool_backed_research.agent notes \
   --input '{"topic":"incident response"}'
 ```
 
@@ -341,7 +341,7 @@ python main.py examples/tool_backed_research.agent notes \
 Live mode uses the declared `web_search` tool when the model decides it needs external grounding:
 
 ```bash
-python main.py examples/tool_backed_research.agent notes \
+cargo run -- examples/tool_backed_research.agent notes \
   --adapter live \
   --input '{"topic":"incident response"}'
 ```
@@ -371,7 +371,7 @@ pipeline brief(topic: String) -> String {
 Mock mode:
 
 ```bash
-python main.py examples/agent_task.agent brief \
+cargo run -- examples/agent_task.agent brief \
   --input '{"topic":"incident response"}'
 ```
 
@@ -384,7 +384,7 @@ python main.py examples/agent_task.agent brief \
 Live mode:
 
 ```bash
-python main.py examples/agent_task.agent brief \
+cargo run -- examples/agent_task.agent brief \
   --adapter live \
   --input '{"topic":"incident response"}'
 ```
@@ -439,10 +439,10 @@ workflow publish_topic_blog(topic: String) -> String {
 This example is the higher-level authoring model: the user declares stages and a review policy, and the compiler lowers that to an explicit pipeline with `run`, `while`, and `break` internally. The planner produces an outline, the reviewer approves or rejects it, and the revise/re-review loop happens in the lowered IR instead of the source file.
 
 ```bash
-python main.py examples/multiagent_blog.agent publish_topic_blog \
+cargo run -- examples/multiagent_blog.agent publish_topic_blog \
   --input '{"topic":"agent memory systems"}'
 
-python main.py examples/multiagent_blog.agent publish_topic_blog \
+cargo run -- examples/multiagent_blog.agent publish_topic_blog \
   --lower
 ```
 
@@ -485,10 +485,10 @@ workflow respond_to_incident(incident: String) -> String {
 ```
 
 ```bash
-python main.py examples/incident_runbook.agent respond_to_incident \
+cargo run -- examples/incident_runbook.agent respond_to_incident \
   --input '{"incident":"database failover drill"}'
 
-python main.py examples/incident_runbook.agent respond_to_incident \
+cargo run -- examples/incident_runbook.agent respond_to_incident \
   --lower
 ```
 
@@ -547,10 +547,10 @@ workflow launch_dossier(product: String, audience: String) -> String {
 ```
 
 ```bash
-python main.py examples/launch_dossier.agent launch_dossier \
+cargo run -- examples/launch_dossier.agent launch_dossier \
   --input '{"product":"AI support copilot","audience":"IT operations teams"}'
 
-python main.py examples/launch_dossier.agent launch_dossier \
+cargo run -- examples/launch_dossier.agent launch_dossier \
   --lower
 ```
 
@@ -582,7 +582,7 @@ pipeline loop_to_zero(start: Number) -> Number {
 ```
 
 ```bash
-python main.py examples/while_loop.agent loop_to_zero \
+cargo run -- examples/while_loop.agent loop_to_zero \
   --input '{"start":3}'
 ```
 
@@ -599,9 +599,9 @@ python main.py examples/while_loop.agent loop_to_zero \
 **Features:** `while`, `break`, `continue`, variable rebinding
 
 ```bash
-python main.py examples/break_continue.agent stop_early \
+cargo run -- examples/break_continue.agent stop_early \
   --input '{"start":4}'
-python main.py examples/break_continue.agent skip_once \
+cargo run -- examples/break_continue.agent skip_once \
   --input '{"start":4}'
 ```
 
@@ -667,16 +667,16 @@ test "merge_drafts combines two drafts" {
 
 ```bash
 # Run the pipeline with plugin
-python main.py examples/showcase_all_features.agent produce \
+cargo run -- examples/showcase_all_features.agent produce \
   --input '{"topic":"AI safety"}' \
   --plugin examples/showcase_plugin.py
 
 # Run tests
-python main.py examples/showcase_all_features.agent --test \
+cargo run -- examples/showcase_all_features.agent --test \
   --plugin examples/showcase_plugin.py
 
 # With execution trace
-python main.py examples/showcase_all_features.agent produce \
+cargo run -- examples/showcase_all_features.agent produce \
   --input '{"topic":"AI safety"}' \
   --plugin examples/showcase_plugin.py \
   --output-trace trace.json
@@ -691,7 +691,7 @@ python main.py examples/showcase_all_features.agent produce \
 A taxpayer submits financial details and the system produces a personalised tax-optimisation report through classification, parallel research, strategy building, compliance review, and formatting.
 
 ```bash
-python main.py examples/tax_advisory.agent tax_optimisation_report \
+cargo run -- examples/tax_advisory.agent tax_optimisation_report \
   --input '{"filing_status":"single","income":120000,"state":"California","has_business":true}'
 ```
 

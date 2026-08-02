@@ -1,0 +1,7 @@
+agent worker { tools: [] }
+task make(value: String) -> Obj{value: String} by agent {}
+
+workflow build(value: String) -> String {
+  stage result = worker does make(value);
+  return result.value;
+}

@@ -164,13 +164,13 @@ Evaluates `expr` and exits immediately. The type must match the pipeline's decla
 ## Invoking a pipeline from the CLI
 
 ```bash
-python main.py <source.agent> <pipeline_name> --input '<json>'
+cargo run -- <source.agent> <pipeline_name> --input '<json>'
 ```
 
 Example:
 
 ```bash
-python main.py examples/support.agent support_reply \
+cargo run -- examples/support.agent support_reply \
   --input '{"message":"urgent refund request"}'
 ```
 
@@ -186,11 +186,11 @@ AgentLang validates `--input` strictly before execution:
 
 ```bash
 # Missing required input
-python main.py examples/blog.agent blog_post --input '{}'
+cargo run -- examples/blog.agent blog_post --input '{}'
 # Execution error: Pipeline 'blog_post' missing inputs: ['topic'].
 
 # Unknown extra key
-python main.py examples/blog.agent blog_post \
+cargo run -- examples/blog.agent blog_post \
   --input '{"topic":"x","extra":"bad"}'
 # Execution error: Pipeline 'blog_post' received unknown inputs: ['extra'].
 ```
@@ -200,7 +200,7 @@ Values are also type-checked against declared DSL types (`String`, `Number`, `Bo
 To inspect lowered workflow IR, use:
 
 ```bash
-python main.py examples/multiagent_blog.agent publish_topic_blog --lower
+cargo run -- examples/multiagent_blog.agent publish_topic_blog --lower
 ```
 
 ## Next: [The Type System](types.md)

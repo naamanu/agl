@@ -8,14 +8,34 @@ use thiserror::Error;
 pub enum ParseError {
     #[error(transparent)]
     Lex(#[from] LexError),
-    #[error("{message} at {line}:{col}")]
+    #[error("[AGL1001] {message} at {line}:{col}")]
     Syntax {
         message: String,
         line: usize,
         col: usize,
     },
-    #[error("{0}")]
+    #[error("[AGL1002] {0}")]
     Semantic(String),
+    #[error(
+        "[AGL1003] unsupported language version {version:?} at {line}:{col}; supported version is {supported:?}"
+    )]
+    UnsupportedVersion {
+        version: String,
+        supported: &'static str,
+        line: usize,
+        col: usize,
+    },
+}
+
+impl ParseError {
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::Lex(error) => error.code(),
+            Self::Syntax { .. } => "AGL1001",
+            Self::Semantic(_) => "AGL1002",
+            Self::UnsupportedVersion { .. } => "AGL1003",
+        }
+    }
 }
 
 pub fn parse_program(source: &str) -> Result<Program, ParseError> {
@@ -122,6 +142,9 @@ impl Parser {
     }
 
     fn program(&mut self) -> Result<(), ParseError> {
+        if self.at("language") {
+            self.language_version()?;
+        }
         while self.cur().kind != Kind::Eof {
             match self.cur().text.as_str() {
                 "agent" => {
@@ -158,6 +181,21 @@ impl Parser {
                 }
             }
         }
+        Ok(())
+    }
+    fn language_version(&mut self) -> Result<(), ParseError> {
+        let span = self.expect("language")?.span;
+        let version = self.string()?.text;
+        self.expect(";")?;
+        if version != CURRENT_LANGUAGE_VERSION {
+            return Err(ParseError::UnsupportedVersion {
+                version,
+                supported: CURRENT_LANGUAGE_VERSION,
+                line: span.line,
+                col: span.col,
+            });
+        }
+        self.program.language_version = version;
         Ok(())
     }
     fn alias(&mut self) -> Result<(), ParseError> {

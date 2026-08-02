@@ -1,0 +1,5 @@
+{
+  "source": "invalid/lex.agent",
+  "phase": "reject",
+  "code": "AGL0001"
+}

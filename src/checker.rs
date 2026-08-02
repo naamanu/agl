@@ -3,11 +3,16 @@ use std::collections::BTreeMap;
 use thiserror::Error;
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
-#[error("{message} at {line}:{col}")]
+#[error("[AGL2001] {message} at {line}:{col}")]
 pub struct CheckError {
     pub message: String,
     pub line: usize,
     pub col: usize,
+}
+impl CheckError {
+    pub const fn code(&self) -> &'static str {
+        "AGL2001"
+    }
 }
 type Env = BTreeMap<String, TypeExpr>;
 

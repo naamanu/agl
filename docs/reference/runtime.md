@@ -1,5 +1,7 @@
 # Runtime & Typing
 
+The normative source-language contract is [`spec/agl-0.2.md`](https://github.com/naamanu/agl/blob/main/spec/agl-0.2.md). The Rust implementation is normative; this page explains its compiler and runtime architecture.
+
 This page describes the AgentLang execution pipeline — from source text to final output — and the guarantees each phase provides.
 
 ## Execution phases
@@ -62,7 +64,7 @@ Current workflow lowering handles:
 - hidden countdown-based loop budgets
 - workflow returns
 
-`python main.py <file> <workflow_name> --lower` prints the lowered pipeline IR.
+`cargo run -- <file> <workflow_name> --lower` prints the lowered pipeline IR.
 
 ## Type checker
 

@@ -1,0 +1,7 @@
+{
+  "source": "valid/structural_width.agent",
+  "phase": "execute",
+  "pipeline": "main",
+  "input": {"name": "AGL"},
+  "expected": {"name": "AGL", "retained": "extra fields are permitted"}
+}

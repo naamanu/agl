@@ -5,7 +5,7 @@ AgentLang is invoked via `main.py`. The default command executes a named pipelin
 ## `run` — execute a pipeline or workflow
 
 ```
-python main.py <source> <pipeline> [options]
+cargo run -- <source> <pipeline> [options]
 ```
 
 ### Positional arguments
@@ -33,7 +33,7 @@ python main.py <source> <pipeline> [options]
 Run in mock mode (default):
 
 ```bash
-python main.py examples/blog.agent blog_post \
+cargo run -- examples/blog.agent blog_post \
   --input '{"topic":"agent memory patterns"}'
 ```
 
@@ -48,7 +48,7 @@ Run in live mode (OpenAI):
 ```bash
 export OPENAI_API_KEY="sk-..."
 
-python main.py examples/blog.agent blog_post \
+cargo run -- examples/blog.agent blog_post \
   --adapter live \
   --input '{"topic":"agent memory patterns"}'
 ```
@@ -58,7 +58,7 @@ Run in anthropic mode (Claude):
 ```bash
 export ANTHROPIC_API_KEY="sk-ant-..."
 
-python main.py examples/blog.agent blog_post \
+cargo run -- examples/blog.agent blog_post \
   --adapter anthropic \
   --input '{"topic":"agent memory patterns"}'
 ```
@@ -66,13 +66,13 @@ python main.py examples/blog.agent blog_post \
 Inspect lowered workflow IR:
 
 ```bash
-python main.py examples/multiagent_blog.agent publish_topic_blog --lower
+cargo run -- examples/multiagent_blog.agent publish_topic_blog --lower
 ```
 
 Trace live model and tool activity:
 
 ```bash
-python main.py examples/incident_runbook.agent respond_to_incident \
+cargo run -- examples/incident_runbook.agent respond_to_incident \
   --adapter live \
   --trace-live \
   --input '{"incident":"database failover drill"}'
@@ -81,7 +81,7 @@ python main.py examples/incident_runbook.agent respond_to_incident \
 Limit parallel workers:
 
 ```bash
-python main.py examples/compare.agent compare_options \
+cargo run -- examples/compare.agent compare_options \
   --input '{"query":"vector database"}' \
   --workers 2
 ```
@@ -89,7 +89,7 @@ python main.py examples/compare.agent compare_options \
 Write an execution trace to a file:
 
 ```bash
-python main.py examples/showcase_all_features.agent produce \
+cargo run -- examples/showcase_all_features.agent produce \
   --input '{"topic":"AI safety"}' \
   --output-trace trace.json
 ```
@@ -97,7 +97,7 @@ python main.py examples/showcase_all_features.agent produce \
 Run with a plugin:
 
 ```bash
-python main.py examples/showcase_all_features.agent produce \
+cargo run -- examples/showcase_all_features.agent produce \
   --input '{"topic":"AI safety"}' \
   --plugin examples/showcase_plugin.py
 ```
@@ -105,7 +105,7 @@ python main.py examples/showcase_all_features.agent produce \
 Run test blocks:
 
 ```bash
-python main.py examples/showcase_all_features.agent --test
+cargo run -- examples/showcase_all_features.agent --test
 ```
 
 ### Input validation
@@ -114,16 +114,16 @@ python main.py examples/showcase_all_features.agent --test
 
 ```bash
 # Missing required input
-python main.py examples/blog.agent blog_post --input '{}'
+cargo run -- examples/blog.agent blog_post --input '{}'
 Execution error: Pipeline 'blog_post' missing inputs: ['topic'].
 
 # Unknown extra key
-python main.py examples/blog.agent blog_post \
+cargo run -- examples/blog.agent blog_post \
   --input '{"topic":"x","extra":"bad"}'
 Execution error: Pipeline 'blog_post' received unknown inputs: ['extra'].
 
 # Wrong pipeline/workflow name
-python main.py examples/blog.agent nonexistent_pipeline --input '{}'
+cargo run -- examples/blog.agent nonexistent_pipeline --input '{}'
 Execution error: Unknown pipeline 'nonexistent_pipeline'.
 ```
 
@@ -134,13 +134,13 @@ Values are type-checked against declared DSL types. Booleans in JSON are checked
 ## `repl` — interactive session
 
 ```
-python main.py repl [--adapter mock|live|anthropic]
+cargo run -- repl [--adapter mock|live|anthropic]
 ```
 
 Starts an interactive prompt for exploring pipelines and workflows.
 
 ```bash
-python main.py repl --adapter mock
+cargo run -- repl --adapter mock
 ```
 
 ```
@@ -156,15 +156,10 @@ These are read at startup and affect live/anthropic mode behavior:
 
 | Variable | Default | Description |
 |---|---|---|
-| `OPENAI_API_KEY` | — | Required for `--adapter live` |
-| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | Override OpenAI API base URL |
+| `OPENAI_API_KEY` | — | Required for `--adapter openai` (`live` is an alias) |
 | `ANTHROPIC_API_KEY` | — | Required for `--adapter anthropic` |
-| `ANTHROPIC_BASE_URL` | `https://api.anthropic.com` | Override Anthropic API base URL |
-| `AGENTLANG_ADAPTER` | `mock` | Default adapter if `--adapter` is not passed |
-| `AGENTLANG_DEFAULT_MODEL` | `gpt-4.1-mini` | Fallback model when no `by agent` binding exists (mapped automatically in anthropic mode) |
-| `AGENTLANG_WEB_RESULTS` | `5` | Number of DuckDuckGo results to inject for `research` |
-| `AGENTLANG_HTTP_TIMEOUT_S` | `20` | HTTP timeout in seconds for adapter calls |
-| `AGENTLANG_TRACE_LIVE` | `0` | Enable live model/tool tracing without passing `--trace-live` |
+| `AGL_OPENAI_MODEL` | `gpt-5.6-sol` | Global OpenAI model override |
+| `AGL_ANTHROPIC_MODEL` | provider default | Global Anthropic model override |
 
 !!! warning "Never commit secrets"
     Use environment variables or a shell profile for `OPENAI_API_KEY` and `ANTHROPIC_API_KEY`. Do not hardcode keys in `.agent` files or source code.

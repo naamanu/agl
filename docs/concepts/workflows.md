@@ -74,7 +74,7 @@ Workflows are compiled into ordinary pipelines before type-checking and executio
 Use:
 
 ```bash
-python main.py examples/multiagent_blog.agent publish_topic_blog --lower
+cargo run -- examples/multiagent_blog.agent publish_topic_blog --lower
 ```
 
 to inspect the lowered pipeline IR.

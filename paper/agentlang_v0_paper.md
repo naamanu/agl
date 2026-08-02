@@ -3,6 +3,8 @@
 **Author:** Nana Manu
 **Date:** March 2, 2026
 
+> **Implementation note (August 2026):** This paper describes the original v0 Python artifact. AGL 0.2 adds a native Rust compiler/runtime with the same source language; the Python implementation is retained as a reference and for live adapters during migration. See `docs/rust-port.md` for the current parity matrix. Historical measurements below are intentionally unchanged.
+
 ## Abstract
 
 Agent orchestration code is often embedded in general-purpose languages and framework-specific APIs, which makes execution behavior difficult to reason about and validate statically. AgentLang is a compact domain-specific language (DSL) that makes workflow structure explicit through typed task signatures, sequential and parallel composition, conditional branching, and built-in retry/fallback policies. This paper presents AgentLang v0 as a full source-to-execution stack: lexer, parser, static checker, and runtime, together with a formal static and dynamic semantics. The implementation is intentionally small (1,567 LOC across CLI and core modules) and dependency-light, while still supporting deterministic mock execution and optional live OpenAI-backed adapters. We describe the language design, semantic model, implementation architecture, and empirical artifact checks. Results show that static checks reject common orchestration errors before execution, while parallel blocks deliver near-ideal speedup in an I/O-bound microbenchmark (1.97x for two equal-latency tasks).

@@ -1,6 +1,6 @@
 # AgentLang
 
-A tiny, self-contained DSL for agentic workflows. Define agents, typed tasks, declarative workflows, and low-level pipelines — then run them with deterministic mock adapters or live OpenAI backends.
+A tiny, self-contained DSL for agentic workflows. Define agents, typed tasks, declarative workflows, and low-level pipelines. The primary implementation is now a native Rust library and CLI; the original Python implementation remains as a compatibility oracle and currently provides the live model adapters.
 
 ```agentlang
 tool web_search(query: String) -> List[Obj{title: String, url: String, snippet: String}] {}
@@ -50,11 +50,10 @@ workflow blog_post(topic: String) -> String {
 - **Pipeline composition** — pipelines can call other pipelines with `run sub_pipeline with {...}`
 - **Assert & test blocks** — `assert expr, "msg";` and `test "name" { ... }` for in-language testing
 - **Typed agent tasks** — `task ... by agent {}` enforces declared output shapes at runtime; `model` is optional
-- **Plugin system** — `--plugin` loads custom task/tool handlers at runtime
+- **Embeddable handler registry** — Rust applications register native task handlers through the public `Registry` API
 - **Observability** — `--output-trace` writes structured JSON execution traces
-- **Live tracing** — `--trace-live` prints model round trips and tool calls to `stderr`
-- **Two adapter modes** — `mock` (deterministic, no API key) and `live` (OpenAI + tool calling)
-- **No framework dependencies** — lexer, parser, checker, and runtime are all pure Python
+- **Compatibility adapters** — the legacy Python CLI still supports OpenAI, Anthropic, web tools, and Python plugins while native Rust adapters are being ported
+- **Small dependency surface** — the Rust core uses `serde`, `serde_json`, `thiserror`, and `clap`
 
 ---
 
@@ -87,45 +86,52 @@ Strict validation before execution runs:
 ## Quick start
 
 ```bash
-# mock mode — no API key needed
-python main.py examples/blog.agent blog_post --input '{"topic":"agent memory patterns"}'
-python main.py examples/multiagent_blog.agent publish_topic_blog --input '{"topic":"agent memory systems"}'
-python main.py examples/multiagent_blog.agent publish_topic_blog --lower
-python main.py examples/compare.agent compare_options --input '{"query":"vector database"}'
-python main.py examples/support.agent support_reply --input '{"message":"urgent refund request"}'
-python main.py examples/reliability.agent resilient_brief --input '{"topic":"api-status","fail_count":1}'
-python main.py examples/reliability.agent resilient_brief --input '{"topic":"api-status","fail_count":5}'
+# build and test the native implementation
+cargo build --release
+cargo test
+
+# deterministic mock mode — no API key needed
+cargo run -- examples/blog.agent blog_post --input '{"topic":"agent memory patterns"}'
+cargo run -- examples/compare.agent compare_options --input '{"query":"vector database"}'
+cargo run -- examples/support.agent support_reply --input '{"message":"urgent refund request"}'
+cargo run -- examples/reliability.agent resilient_brief --input '{"topic":"api-status","fail_count":1}'
+
+# parse and statically check without running
+cargo run -- examples/showcase_all_features.agent --check
 
 # run test blocks
-python main.py examples/showcase_all_features.agent --test --plugin examples/showcase_plugin.py
+cargo run -- examples/showcase_all_features.agent --test
 
 # write execution trace
-python main.py examples/showcase_all_features.agent produce --input '{"topic":"AI safety"}' --output-trace trace.json --plugin examples/showcase_plugin.py
+cargo run -- examples/blog.agent blog_post --input '{"topic":"AI safety"}' --output-trace trace.json
 
-# live mode — requires OPENAI_API_KEY
+# compatibility CLI: live mode and Python plugins
 export OPENAI_API_KEY="..."
 python main.py examples/incident_runbook.agent respond_to_incident --adapter live --trace-live --input '{"incident":"database failover drill"}'
 ```
+
+See [Rust port status](docs/rust-port.md) for the parity matrix and migration notes.
 
 ---
 
 ## Project layout
 
 ```text
+src/
+  ast.rs        -- typed Rust AST
+  lexer.rs      -- tokenizer + string decoder
+  parser.rs     -- parser, shorthand resolution, workflow lowering
+  checker.rs    -- static type checker
+  runtime.rs    -- concurrent pipeline executor + native Registry
+  stdlib.rs     -- deterministic task handlers
+  context.rs    -- structured execution traces
+  lib.rs        -- public embedding API
+  main.rs       -- native CLI
 agentlang/
-  ast.py        -- AST node dataclasses
-  lexer.py      -- tokenizer + string decoder
-  parser.py     -- recursive-descent parser
-  lowering.py   -- workflow-to-pipeline lowering
-  checker.py    -- static type checker
-  runtime.py    -- pipeline executor
-  stdlib.py     -- built-in task handlers
-  context.py    -- ExecutionContext + observability
-  plugins.py    -- PluginRegistry for extensibility
-  adapters/     -- OpenAI + tool adapters
+  ...           -- original Python reference implementation and live adapters
 examples/       -- seventeen runnable .agent programs
 docs/           -- full documentation (MkDocs)
-main.py         -- CLI entrypoint
+main.py         -- compatibility Python CLI
 ```
 
 ## Documentation

@@ -24,7 +24,7 @@ AGL 0.2 introduces a native Rust implementation while preserving the Python impl
 | Dynamic Python tool plugins | Complete via migration bridge |
 | Interactive REPL and lowered-IR printer | Complete |
 
-All checked-in `.agent` examples are parsed and checked by the Rust integration suite. Deterministic blog, support-routing, and retry paths have also been compared directly with the Python results.
+All checked-in `.agent` examples are parsed and checked by the Rust integration suite. A differential test executes the blog, support-routing, comparison, and retry pipelines through both implementations and requires identical JSON results.
 
 ## Embedding
 

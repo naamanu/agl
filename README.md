@@ -43,6 +43,12 @@ workflow blog_post(topic: String) -> String {
 - **Type aliases & enums** — `type Notes = Obj{...};` and `enum Tone { formal, casual };` for cleaner signatures
 - **Declarative workflows** — `workflow`, `stage`, and `review` compile into explicit pipeline IR
 - **Parallel execution** — `parallel { } join` with optional per-block `max_concurrency`
+- **Structured concurrency** — ordered bounded `parallel map`, cancellable `race`, scoped budgets, groups, and rate limits
+- **Durable workflows** — SQLite checkpoints, crash-safe replay, stable identities, and persisted human approvals
+- **Typed outcomes & effects** — records, unions, `Result`, exhaustive `match`, capability inference, and safe idempotent retries
+- **Provider-neutral deployment** — source requirements are validated against external OpenAI or Anthropic bindings
+- **Modules & reproducible packages** — qualified imports, visibility, cached interfaces, manifests, locks, and API compatibility
+- **Editor tooling** — canonical formatter, JSON compiler protocol, LSP, tree-sitter grammar, and shell completions
 - **Shorthand syntax** — `let r = task(args) by agent;` as concise alternative to `run ... with`
 - **Loop control** — `while`, `break`, and `continue` are available in lowered pipelines and low-level authoring
 - **Retry & fallback** — `retries N on_fail use <expr>` as first-class syntax
@@ -54,7 +60,7 @@ workflow blog_post(topic: String) -> String {
 - **Observability** — `--output-trace` writes structured JSON execution traces
 - **Native live adapters** — OpenAI Responses and Anthropic Messages clients with validated web-tool calling
 - **Plugin migration bridge** — existing Python task plugins continue to work through `--plugin`
-- **Small dependency surface** — the Rust core uses `serde`, `serde_json`, `thiserror`, and `clap`
+- **Small dependency surface** — the Rust core uses `serde`, `serde_json`, `thiserror`, `clap`, `tokio`, and `reqwest`
 
 ---
 

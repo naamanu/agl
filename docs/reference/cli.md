@@ -31,6 +31,11 @@ cargo run -- <source> <pipeline> [options]
 | `--execution-id ID` | generated | Stable durable execution identity |
 | `--resume` | off | Replay checkpoints for the selected durable execution |
 | `--approval NAME=BOOL` | — | Supply a persisted approval or rejection; may be repeated |
+| `--format` | off | Print canonical AGL source |
+| `--docs PATH` | off | Generate Markdown API documentation |
+| `--api PATH` | off | Write a machine-readable public API interface |
+| `--policy PATH` | off | Enforce a deployment capability/allowlist policy |
+| `--summary` | off | Print effects, external writes, and approvals as JSON |
 | `--trace-live` | off | Emit live model/tool tracing to `stderr` when running with `--adapter live` or `--adapter anthropic` |
 | `--output-trace PATH` | off | Write a structured JSON execution trace to `PATH` after execution |
 | `--plugin MODULE` | — | Load a plugin module (Python file path or dotted module name). May be repeated. |

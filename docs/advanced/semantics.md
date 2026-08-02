@@ -371,7 +371,7 @@ Control-flow signals (`return`, `break`, `continue`) raised inside a `try` block
 
 **Timeout (non-retryable):**
 
-When a task handler exceeds its `timeout` deadline, a `HandlerTimeoutError` (subclass of `ExecutionError`) is raised. Unlike other execution errors, timeout errors are **not retryable** — the retry loop immediately falls through to the failure policy. This is because the timed-out handler thread may still be running in the background, and retrying would risk overlapping side-effects.
+When a task handler exceeds its `timeout` deadline, a non-retryable timeout `Failure` is raised and its cooperative cancellation token is set. Cancellation-aware handlers and adapters stop and are joined; legacy synchronous handlers retain compatibility but cannot promise prompt cancellation.
 
 **Assert (pass):**
 
@@ -465,3 +465,19 @@ $$\Phi(W)=\bigcup_{r\in runs(W)}\left(\Phi(r)\cup\Phi(callee(r))\right)$$
 For a pipeline with declared ceiling $C$, well-typedness additionally requires $\Phi(W)\subseteq C$.
 
 Let $safe(i)$ hold for idempotency contracts `pure`, `idempotent`, and `keyed_by`. A retried call with effect `external_write` is well typed only when $safe(i)$ holds. A call explicitly declared `non_idempotent` is never retryable. When the call is agent-bound, this condition also applies to every available tool carrying `external_write`.
+
+---
+
+## 7. AGL 0.5 structured and durable transitions
+
+For `parallel map`, if $E(x_s)=[v_1\ldots v_n]$ and every mapped task produces $u_i$, the resulting environment is $E[x_t\mapsto[u_1\ldots u_n]]`; scheduler order does not alter index order. A race returns the first successful $u_i$, sends cancellation to every $j\ne i$, and joins the complete child set before continuing.
+
+Durable execution adds history $H$ to the configuration. Before invoking operation identity $i$, replay checks $H$ for `task_result(i,v)`. If present, the transition binds $v$ without an external call. Otherwise the runtime appends an attempt, invokes, and appends the result checkpoint. Resume is defined only when the stored program/deployment fingerprint equals the current fingerprint.
+
+An approval without a supplied decision appends `human_suspended` and yields a typed suspension. Resume with a non-expired decision binds its Boolean value and appends an audited approval event.
+
+## 8. AGL 0.6 module judgments
+
+Let $M$ map canonical module paths to interfaces and $I$ be the directed import graph. Resolution succeeds iff $I$ is acyclic and every qualified reference $a::x$ names $x$ in the public interface of alias $a$. Private declarations remain available only while checking their owning namespace.
+
+An interface fingerprint is computed from canonical serialized public signatures and effects. Package/API compatibility is structural over these interfaces: removal or signature/effect change is breaking; addition is compatible.

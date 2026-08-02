@@ -39,17 +39,22 @@ pub enum ToolError {
 pub struct ToolRegistry {
     handlers: BTreeMap<String, ToolHandler>,
     groups: Arc<(Mutex<BTreeMap<String, ToolGroupState>>, Condvar)>,
+    policy: Option<Arc<crate::policy::DeploymentPolicy>>,
 }
 impl Default for ToolRegistry {
     fn default() -> Self {
         Self {
             handlers: BTreeMap::new(),
             groups: Arc::new((Mutex::new(BTreeMap::new()), Condvar::new())),
+            policy: None,
         }
     }
 }
 
 impl ToolRegistry {
+    pub fn set_policy(&mut self, policy: Arc<crate::policy::DeploymentPolicy>) {
+        self.policy = Some(policy);
+    }
     pub fn register<F>(&mut self, name: impl Into<String>, handler: F)
     where
         F: Fn(&Map<String, Value>) -> Result<Value, ToolError> + Send + Sync + 'static,
@@ -77,6 +82,14 @@ impl ToolRegistry {
             .tools
             .get(name)
             .ok_or_else(|| ToolError::Undeclared { tool: name.into() })?;
+        if let Some(policy) = &self.policy {
+            policy
+                .validate_tool(name, args)
+                .map_err(|error| ToolError::Network {
+                    tool: name.into(),
+                    detail: error.to_string(),
+                })?;
+        }
         validate_args(program, declaration, args)?;
         let _permit = declaration
             .concurrency_group

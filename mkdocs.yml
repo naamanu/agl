@@ -52,6 +52,9 @@ nav:
       - Evaluation: concepts/evaluation.md
       - Structured Concurrency: concepts/structured-concurrency.md
       - Durable Workflows: concepts/durable-workflows.md
+      - Modules & Packages: concepts/modules-and-packages.md
+      - Editor Tooling: concepts/editor-tooling.md
+      - Extensions & Security: concepts/extensions-and-security.md
       - Deployment Bindings: concepts/deployment.md
       - Error Handling: concepts/error-handling.md
       - Testing: concepts/testing.md
@@ -59,6 +62,7 @@ nav:
       - Observability: concepts/observability.md
   - Reference:
       - Language Reference: reference/language.md
+      - Migration 0.3–0.6: migrations/0.3-to-0.6.md
       - CLI Reference: reference/cli.md
       - Adapters: reference/adapters.md
       - Runtime & Typing: reference/runtime.md

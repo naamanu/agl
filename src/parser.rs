@@ -119,6 +119,14 @@ impl Parser {
             Err(self.error(format!("expected identifier, got {:?}", self.cur().text)))
         }
     }
+    fn qualified_ident(&mut self) -> Result<Token, ParseError> {
+        let mut token = self.ident()?;
+        while self.take("::") {
+            token.text.push_str("::");
+            token.text.push_str(&self.ident()?.text);
+        }
+        Ok(token)
+    }
     fn string(&mut self) -> Result<Token, ParseError> {
         if self.cur().kind == Kind::String {
             Ok(self.bump())
@@ -146,6 +154,20 @@ impl Parser {
             self.language_version()?;
         }
         while self.cur().kind != Kind::Eof {
+            if self.at("import") {
+                self.import_def()?;
+                continue;
+            }
+            let visible = if self.take("public") {
+                self.require_06("visibility")?;
+                true
+            } else if self.take("private") {
+                self.require_06("visibility")?;
+                false
+            } else {
+                self.program.language_version != "0.6"
+            };
+            let before = declaration_names(&self.program);
             match self.cur().text.as_str() {
                 "agent" => {
                     let x = self.agent()?;
@@ -187,6 +209,26 @@ impl Parser {
                     );
                 }
             }
+            if visible {
+                let after = declaration_names(&self.program);
+                self.program
+                    .public
+                    .extend(after.difference(&before).cloned());
+            }
+        }
+        Ok(())
+    }
+    fn import_def(&mut self) -> Result<(), ParseError> {
+        self.require_06("imports")?;
+        self.expect("import")?;
+        let alias = self.ident()?.text;
+        self.expect("from")?;
+        let path = self.string()?.text;
+        self.expect(";")?;
+        if self.program.imports.insert(alias.clone(), path).is_some() {
+            return Err(ParseError::Semantic(format!(
+                "duplicate import alias '{alias}'"
+            )));
         }
         Ok(())
     }
@@ -197,7 +239,7 @@ impl Parser {
         if !SUPPORTED_LANGUAGE_VERSIONS.contains(&version.as_str()) {
             return Err(ParseError::UnsupportedVersion {
                 version,
-                supported: "0.2, 0.3, 0.4, 0.5",
+                supported: "0.2, 0.3, 0.4, 0.5, 0.6",
                 line: span.line,
                 col: span.col,
             });
@@ -474,7 +516,7 @@ impl Parser {
                     self.expect("[")?;
                     let mut x = Vec::new();
                     while !self.at("]") {
-                        x.push(self.ident()?.text);
+                        x.push(self.qualified_ident()?.text);
                         if !self.take(",") {
                             break;
                         }
@@ -819,6 +861,15 @@ impl Parser {
             )))
         }
     }
+    fn require_06(&self, feature: &str) -> Result<(), ParseError> {
+        if self.program.language_version == "0.6" {
+            Ok(())
+        } else {
+            Err(ParseError::Semantic(format!(
+                "{feature} requires language \"0.6\""
+            )))
+        }
+    }
     fn workflow(&mut self) -> Result<Workflow, ParseError> {
         self.expect("workflow")?;
         let name = self.ident()?.text;
@@ -918,7 +969,7 @@ impl Parser {
         Ok(ps)
     }
     fn ty(&mut self) -> Result<TypeExpr, ParseError> {
-        let t = self.ident()?.text;
+        let t = self.qualified_ident()?.text;
         match t.as_str() {
             "String" => Ok(TypeExpr::String),
             "Number" => Ok(TypeExpr::Number),
@@ -978,6 +1029,7 @@ impl Parser {
             _ if self.program.records.contains_key(&t) => Ok(TypeExpr::Record(t)),
             _ if self.program.unions.contains_key(&t) => Ok(TypeExpr::Union(t)),
             _ if self.program.aliases.contains_key(&t) => Ok(TypeExpr::Alias(t)),
+            _ if t.contains("::") => Ok(TypeExpr::Alias(t)),
             _ => Err(ParseError::Semantic(format!(
                 "unknown type '{t}' (types must be declared before use)"
             ))),
@@ -1291,11 +1343,11 @@ impl Parser {
         let callable;
         let mut args = BTreeMap::new();
         if self.take("run") {
-            callable = self.ident()?.text;
+            callable = self.qualified_ident()?.text;
             self.expect("with")?;
             args = self.arg_map()?
         } else {
-            callable = self.ident()?.text;
+            callable = self.qualified_ident()?.text;
             for (i, e) in self.call_args()?.into_iter().enumerate() {
                 args.insert(format!("__pos_{i}"), e);
             }
@@ -1319,7 +1371,7 @@ impl Parser {
             }
             self.bump();
             match clause.as_str() {
-                "by" => agent = Some(self.ident()?.text),
+                "by" => agent = Some(self.qualified_ident()?.text),
                 "retries" => retries = self.integer("retries")?,
                 "retry_on" => {
                     if self.program.language_version == "0.2" {
@@ -2073,6 +2125,21 @@ fn unique<T>(map: &BTreeMap<String, T>, name: &str, kind: &str) -> Result<(), Pa
         Ok(())
     }
 }
+fn declaration_names(program: &Program) -> BTreeSet<String> {
+    program
+        .agents
+        .keys()
+        .chain(program.tools.keys())
+        .chain(program.tasks.keys())
+        .chain(program.pipelines.keys())
+        .chain(program.aliases.keys())
+        .chain(program.records.keys())
+        .chain(program.unions.keys())
+        .chain(program.enums.keys())
+        .chain(program.evals.keys())
+        .cloned()
+        .collect()
+}
 fn resolve_stmts(xs: &mut [Stmt], sigs: &BTreeMap<String, Vec<String>>) -> Result<(), ParseError> {
     for x in xs {
         match x {
@@ -2119,9 +2186,15 @@ fn resolve_run(r: &mut RunStmt, sigs: &BTreeMap<String, Vec<String>>) -> Result<
     if !r.args.keys().any(|x| x.starts_with("__pos_")) {
         return Ok(());
     }
-    let ps = sigs.get(&r.callable).ok_or_else(|| {
-        ParseError::Semantic(format!("unknown task or pipeline '{}'", r.callable))
-    })?;
+    let Some(ps) = sigs.get(&r.callable) else {
+        if r.callable.contains("::") {
+            return Ok(());
+        }
+        return Err(ParseError::Semantic(format!(
+            "unknown task or pipeline '{}'",
+            r.callable
+        )));
+    };
     if r.args.len() != ps.len() {
         return Err(ParseError::Semantic(format!(
             "'{}' expected {} positional args, got {}",
@@ -2133,6 +2206,36 @@ fn resolve_run(r: &mut RunStmt, sigs: &BTreeMap<String, Vec<String>>) -> Result<
     let old = std::mem::take(&mut r.args);
     for (i, p) in ps.iter().enumerate() {
         r.args.insert(p.clone(), old[&format!("__pos_{i}")].clone());
+    }
+    Ok(())
+}
+
+pub(crate) fn resolve_loaded_shorthand(program: &mut Program) -> Result<(), ParseError> {
+    let signatures: BTreeMap<String, Vec<String>> = program
+        .tasks
+        .iter()
+        .map(|(name, task)| {
+            (
+                name.clone(),
+                task.params.iter().map(|param| param.name.clone()).collect(),
+            )
+        })
+        .chain(program.pipelines.iter().map(|(name, pipeline)| {
+            (
+                name.clone(),
+                pipeline
+                    .params
+                    .iter()
+                    .map(|param| param.name.clone())
+                    .collect(),
+            )
+        }))
+        .collect();
+    for pipeline in program.pipelines.values_mut() {
+        resolve_stmts(&mut pipeline.statements, &signatures)?;
+    }
+    for test in &mut program.tests {
+        resolve_stmts(&mut test.statements, &signatures)?;
     }
     Ok(())
 }

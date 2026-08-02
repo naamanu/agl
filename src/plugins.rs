@@ -42,15 +42,17 @@ def load_plugin(path):
 mode, path = sys.argv[1], sys.argv[2]
 registry = load_plugin(path)
 if mode == 'manifest':
-    print(json.dumps({'tasks': sorted(registry.tasks), 'tools': sorted(registry.tools)}))
+    print(json.dumps({'protocol': 1, 'tasks': sorted(registry.tasks), 'tools': sorted(registry.tools)}))
 else:
     name = sys.argv[3]
     payload = json.load(sys.stdin)
+    if payload.get('protocol') != 1:
+        raise ValueError('unsupported AGL Python protocol')
     if mode == 'call-task':
         result = registry.tasks[name](payload['args'], payload.get('agent'))
     else:
         result = registry.tools[name](payload['args'])
-    print(json.dumps(result))
+    print(json.dumps({'protocol': 1, 'result': result}))
 "#;
 
 #[derive(Debug, Error)]
@@ -65,6 +67,7 @@ pub enum PluginError {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct PluginManifest {
+    pub protocol: u32,
     pub tasks: Vec<String>,
     pub tools: Vec<String>,
 }
@@ -96,6 +99,12 @@ pub fn load_python_plugin_with_tools(
             plugin: plugin.clone(),
             detail: e.to_string(),
         })?;
+    if manifest.protocol != crate::extension::PYTHON_PROTOCOL_VERSION {
+        return Err(PluginError::Failed {
+            plugin,
+            detail: format!("unsupported Python protocol {}", manifest.protocol),
+        });
+    }
     for task in &manifest.tasks {
         let (plugin, task) = (plugin.clone(), task.clone());
         registry.register(task.clone(), move |args, agent| {
@@ -133,7 +142,7 @@ fn call_python<T: serde::Serialize + ?Sized>(
         .spawn()?;
     serde_json::to_writer(
         child.stdin.as_mut().expect("piped stdin"),
-        &json!({"args":args,"agent":agent}),
+        &json!({"protocol":crate::extension::PYTHON_PROTOCOL_VERSION,"args":args,"agent":agent}),
     )
     .map_err(|e| PluginError::InvalidJson {
         plugin: plugin.into(),
@@ -147,10 +156,20 @@ fn call_python<T: serde::Serialize + ?Sized>(
             detail: String::from_utf8_lossy(&output.stderr).trim().into(),
         });
     }
-    serde_json::from_slice(&output.stdout).map_err(|e| PluginError::InvalidJson {
-        plugin: plugin.into(),
-        detail: e.to_string(),
-    })
+    let envelope: Value =
+        serde_json::from_slice(&output.stdout).map_err(|e| PluginError::InvalidJson {
+            plugin: plugin.into(),
+            detail: e.to_string(),
+        })?;
+    if envelope.get("protocol").and_then(Value::as_u64)
+        != Some(u64::from(crate::extension::PYTHON_PROTOCOL_VERSION))
+    {
+        return Err(PluginError::Failed {
+            plugin: plugin.into(),
+            detail: "Python protocol mismatch".into(),
+        });
+    }
+    Ok(envelope.get("result").cloned().unwrap_or(Value::Null))
 }
 
 #[cfg(test)]

@@ -4,7 +4,7 @@ Complete syntax reference for AGL 0.2 and 0.3.
 
 ## File structure
 
-An `.agent` file may begin with `language "0.2";` or `language "0.3";`, then contains declarations. When the version declaration is omitted, the current language version is assumed. Unsupported explicit versions are rejected rather than silently reinterpreted. AGL 0.3 adds `record`, `union`, `Result`, and `match`; explicitly versioned 0.2 files cannot use them.
+An `.agent` file may begin with `language "0.2";` through `language "0.6";`, then contains declarations. When omitted, the current language version is assumed. Unsupported versions are rejected rather than silently reinterpreted. AGL 0.3 adds named outcomes, 0.4 effects/deployments/evaluation, 0.5 durable structured concurrency, and 0.6 modules/packages/tooling.
 
 ```agentlang
 language "0.2";
@@ -45,7 +45,7 @@ test "research returns notes" {
 }
 ```
 
-For new code using typed outcomes, start with `language "0.3";`. See the normative [AGL 0.2](https://github.com/naamanu/agl/blob/main/spec/agl-0.2.md) and [AGL 0.3](https://github.com/naamanu/agl/blob/main/spec/agl-0.3.md) specifications.
+For new code, start with `language "0.6";`. The versioned normative specifications live in `spec/agl-0.2.md` through `spec/agl-0.6.md`.
 
 ## AGL 0.3 records, unions, and matching
 

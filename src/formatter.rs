@@ -1,5 +1,218 @@
 use crate::ast::*;
 
+pub fn format_program(program: &Program) -> String {
+    let mut sections = vec![format!("language {:?};", program.language_version)];
+    for (alias, path) in &program.imports {
+        sections.push(format!("import {alias} from {path:?};"));
+    }
+    let visibility = |name: &str| {
+        if program.language_version != "0.6" {
+            ""
+        } else if program.public.contains(name) {
+            "public "
+        } else {
+            "private "
+        }
+    };
+    for (name, ty) in &program.aliases {
+        sections.push(format!(
+            "{}type {name} = {};",
+            visibility(name),
+            format_type(ty)
+        ));
+    }
+    for (name, record) in &program.records {
+        sections.push(format!(
+            "{}record {name} {{ {} }};",
+            visibility(name),
+            record
+                .fields
+                .iter()
+                .map(|(field, ty)| format!("{field}: {}", format_type(ty)))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    for (name, union) in &program.unions {
+        sections.push(format!(
+            "{}union {name} {{ {} }};",
+            visibility(name),
+            union
+                .variants
+                .iter()
+                .map(|(variant, fields)| if fields.is_empty() {
+                    variant.clone()
+                } else {
+                    format!(
+                        "{variant} {{ {} }}",
+                        fields
+                            .iter()
+                            .map(|(field, ty)| format!("{field}: {}", format_type(ty)))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    for (name, variants) in &program.enums {
+        sections.push(format!(
+            "{}enum {name} {{ {} }};",
+            visibility(name),
+            variants.join(", ")
+        ));
+    }
+    for (name, tool) in &program.tools {
+        sections.push(format_contract(
+            visibility(name),
+            "tool",
+            name,
+            &tool.params,
+            &tool.return_type,
+            &tool.effects,
+            &tool.idempotency,
+            tool.concurrency_group.as_deref(),
+            tool.concurrency_limit,
+            tool.rate_limit_per_second,
+        ));
+    }
+    for (name, task) in &program.tasks {
+        let mut value = format_contract(
+            visibility(name),
+            "task",
+            name,
+            &task.params,
+            &task.return_type,
+            &task.effects,
+            &task.idempotency,
+            task.concurrency_group.as_deref(),
+            task.concurrency_limit,
+            task.rate_limit_per_second,
+        );
+        if task.agent_task {
+            value = value.replacen(" {}", " by agent {}", 1);
+        }
+        sections.push(value);
+    }
+    for (name, agent) in &program.agents {
+        let mut fields = Vec::new();
+        if let Some(model) = &agent.model {
+            fields.push(format!("model: {model:?}"));
+        }
+        fields.push(format!("tools: [{}]", agent.tools.join(", ")));
+        if !agent.requirements.capabilities.is_empty() {
+            fields.push(format!(
+                "requires: [{}]",
+                agent
+                    .requirements
+                    .capabilities
+                    .iter()
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
+        if let Some(value) = agent.requirements.min_context {
+            fields.push(format!("min_context: {value}"));
+        }
+        if let Some(value) = agent.requirements.max_latency_ms {
+            fields.push(format!("max_latency_ms: {value}"));
+        }
+        if let Some(value) = &agent.requirements.quality {
+            fields.push(format!("quality: {value:?}"));
+        }
+        sections.push(format!(
+            "{}agent {name} {{ {} }}",
+            visibility(name),
+            fields.join(", ")
+        ));
+    }
+    for (name, pipeline) in &program.pipelines {
+        sections.push(format!("{}{}", visibility(name), format_pipeline(pipeline)));
+    }
+    for (name, eval) in &program.evals {
+        let mut fields = vec![
+            format!("pipeline: {}", eval.pipeline),
+            format!("dataset: {:?}", eval.dataset),
+            format!("trials: {}", eval.trials),
+            format!("assert_schema: {}", eval.assert_schema),
+            format!("assert_expected: {}", eval.assert_expected),
+        ];
+        if let Some(value) = &eval.baseline {
+            fields.push(format!("baseline: {value:?}"));
+        }
+        if let Some(value) = eval.max_latency_ms {
+            fields.push(format!("max_latency_ms: {value}"));
+        }
+        if let Some(value) = eval.max_cost_usd {
+            fields.push(format!("max_cost_usd: {value}"));
+        }
+        if let Some(value) = &eval.semantic_grader {
+            fields.push(format!("semantic_grader: {value}"));
+        }
+        sections.push(format!(
+            "{}eval {name} {{ {} }}",
+            visibility(name),
+            fields.join(", ")
+        ));
+    }
+    for test in &program.tests {
+        let mut lines = vec![format!("test {:?} {{", test.name)];
+        statements(&test.statements, "  ", &mut lines);
+        lines.push("}".into());
+        sections.push(lines.join("\n"));
+    }
+    sections.join("\n\n") + "\n"
+}
+
+#[allow(clippy::too_many_arguments)]
+fn format_contract(
+    visibility: &str,
+    kind: &str,
+    name: &str,
+    params: &[Param],
+    result: &TypeExpr,
+    effects: &std::collections::BTreeSet<String>,
+    idempotency: &Idempotency,
+    group: Option<&str>,
+    limit: Option<u32>,
+    rate: Option<u32>,
+) -> String {
+    let params = params
+        .iter()
+        .map(|param| format!("{}: {}", param.name, format_type(&param.ty)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let mut clauses = String::new();
+    if !effects.is_empty() {
+        clauses.push_str(&format!(
+            " effects [{}]",
+            effects.iter().cloned().collect::<Vec<_>>().join(", ")
+        ));
+    }
+    match idempotency {
+        Idempotency::Pure => clauses.push_str(" idempotency pure"),
+        Idempotency::Idempotent => clauses.push_str(" idempotency idempotent"),
+        Idempotency::KeyedBy(key) => clauses.push_str(&format!(" idempotency keyed_by {key}")),
+        Idempotency::NonIdempotent => clauses.push_str(" idempotency non_idempotent"),
+        Idempotency::Unspecified => {}
+    }
+    if let Some(group) = group {
+        clauses.push_str(&format!(" concurrency_group {group}"));
+    }
+    if let Some(limit) = limit {
+        clauses.push_str(&format!(" concurrency_limit {limit}"));
+    }
+    if let Some(rate) = rate {
+        clauses.push_str(&format!(" rate_limit {rate}"));
+    }
+    format!(
+        "{visibility}{kind} {name}({params}) -> {}{clauses} {{}}",
+        format_type(result)
+    )
+}
+
 pub fn format_pipeline(pipeline: &PipelineDef) -> String {
     let params = pipeline
         .params
@@ -37,16 +250,27 @@ fn statements(items: &[Stmt], indent: &str, lines: &mut Vec<String>) {
     for stmt in items {
         match stmt {
             Stmt::Run(run) => {
+                let positional = run.args.keys().all(|name| name.starts_with("__pos_"));
                 let args = run
                     .args
                     .iter()
-                    .map(|(name, expr)| format!("{name}: {}", format_expr(expr)))
+                    .map(|(name, expr)| {
+                        if positional {
+                            format_expr(expr)
+                        } else {
+                            format!("{name}: {}", format_expr(expr))
+                        }
+                    })
                     .collect::<Vec<_>>()
                     .join(", ");
-                let mut line = format!(
-                    "{indent}let {} = run {} with {{ {args} }}",
-                    run.target, run.callable
-                );
+                let mut line = if positional {
+                    format!("{indent}let {} = {}({args})", run.target, run.callable)
+                } else {
+                    format!(
+                        "{indent}let {} = run {} with {{ {args} }}",
+                        run.target, run.callable
+                    )
+                };
                 if let Some(agent) = &run.agent {
                     line.push_str(&format!(" by {agent}"));
                 }

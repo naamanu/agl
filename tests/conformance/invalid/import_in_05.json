@@ -1,0 +1,5 @@
+{
+  "source": "invalid/import_in_05.agent",
+  "phase": "reject",
+  "code": "AGL1002"
+}

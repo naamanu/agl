@@ -53,6 +53,16 @@ struct Cli {
     resume: bool,
     #[arg(long = "approval", value_name = "NAME=BOOL")]
     approvals: Vec<String>,
+    #[arg(long)]
+    docs: Option<PathBuf>,
+    #[arg(long)]
+    api: Option<PathBuf>,
+    #[arg(long)]
+    format: bool,
+    #[arg(long)]
+    policy: Option<PathBuf>,
+    #[arg(long)]
+    summary: bool,
     #[arg(long = "plugin")]
     plugins: Vec<String>,
 }
@@ -71,6 +81,24 @@ struct ReplCli {
 }
 
 fn main() {
+    match std::env::args().nth(1).as_deref() {
+        Some("lsp") => return exit_result(agl::tooling::serve_lsp()),
+        Some("protocol") => return exit_result(agl::tooling::serve_json_lines()),
+        Some("completions") => {
+            let shell = std::env::args().nth(2).unwrap_or_default();
+            match agl::tooling::shell_completion(&shell) {
+                Ok(value) => print!("{value}"),
+                Err(error) => {
+                    eprintln!("{error}");
+                    std::process::exit(2);
+                }
+            }
+            return;
+        }
+        Some("package") => return exit_result(package_command()),
+        Some("api-compare") => return exit_result(api_compare_command()),
+        _ => {}
+    }
     if std::env::args().nth(1).as_deref() == Some("repl") {
         if let Err(e) = repl() {
             eprintln!("REPL error: {e}");
@@ -82,6 +110,47 @@ fn main() {
         eprintln!("Execution error: {e}");
         std::process::exit(1)
     }
+}
+
+fn exit_result(result: Result<(), Box<dyn std::error::Error>>) {
+    if let Err(error) = result {
+        eprintln!("{error}");
+        std::process::exit(1);
+    }
+}
+
+fn package_command() -> Result<(), Box<dyn std::error::Error>> {
+    let args: Vec<_> = std::env::args().skip(2).collect();
+    if args.first().map(String::as_str) != Some("lock") {
+        return Err("usage: agl package lock <agl.json> [agl.lock]".into());
+    }
+    let manifest = args.get(1).ok_or("manifest path is required")?;
+    let lock = args.get(2).cloned().unwrap_or_else(|| {
+        std::path::Path::new(manifest)
+            .with_file_name("agl.lock")
+            .display()
+            .to_string()
+    });
+    let value = agl::package::write_lock(manifest, &lock)?;
+    println!("{}", serde_json::to_string_pretty(&value)?);
+    Ok(())
+}
+
+fn api_compare_command() -> Result<(), Box<dyn std::error::Error>> {
+    let previous = std::env::args()
+        .nth(2)
+        .ok_or("previous API JSON is required")?;
+    let current = std::env::args()
+        .nth(3)
+        .ok_or("current API JSON is required")?;
+    let previous = serde_json::from_str(&std::fs::read_to_string(previous)?)?;
+    let current = serde_json::from_str(&std::fs::read_to_string(current)?)?;
+    let report = agl::documentation::compare_api(&previous, &current);
+    println!("{}", serde_json::to_string_pretty(&report)?);
+    if !report.compatible {
+        return Err("public API contains breaking changes".into());
+    }
+    Ok(())
 }
 
 fn repl() -> Result<(), Box<dyn std::error::Error>> {
@@ -167,7 +236,8 @@ fn repl() -> Result<(), Box<dyn std::error::Error>> {
                     let raw: Value = serde_json::from_str(raw_input.trim())?;
                     let object = raw.as_object().ok_or("input JSON must be an object")?;
                     let inputs = object.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-                    let registry = build_registry(program, mode, args.trace_live, &args.plugins)?;
+                    let registry =
+                        build_registry(program, mode, args.trace_live, &args.plugins, None)?;
                     Ok(execute_async(
                         program,
                         name,
@@ -201,6 +271,9 @@ fn load_program(
     let source = std::fs::read_to_string(path)?;
     let mut program = parse_program(&source)
         .map_err(|error| RenderedDiagnostic(render_diagnostic(path, &source, &error)))?;
+    if !program.imports.is_empty() {
+        program = agl::modules::load_module(path)?;
+    }
     check_program(&program)
         .map_err(|error| RenderedDiagnostic(render_diagnostic(path, &source, &error)))?;
     if let Some(path) = deployment {
@@ -215,17 +288,54 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut program = parse_program(&source).map_err(|error| {
         RenderedDiagnostic(render_diagnostic(cli.source.display(), &source, &error))
     })?;
+    if cli.format {
+        print!("{}", agl::format_program(&program));
+        return Ok(());
+    }
+    if !program.imports.is_empty() {
+        program = agl::modules::load_module(&cli.source)?;
+    }
     check_program(&program).map_err(|error| {
         RenderedDiagnostic(render_diagnostic(cli.source.display(), &source, &error))
     })?;
     if let Some(path) = &cli.deployment {
         DeploymentConfig::load(path)?.apply(&mut program, provider_name(&cli.adapter))?;
     }
+    let policy = cli
+        .policy
+        .as_ref()
+        .map(agl::policy::DeploymentPolicy::load)
+        .transpose()?
+        .map(Arc::new);
+    if let Some(policy) = &policy {
+        policy.validate_program(&program)?;
+    }
     for warning in analyze_program(&program) {
         eprintln!(
             "{}",
             render_diagnostic(cli.source.display(), &source, &warning)
         );
+    }
+    if cli.summary {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&agl::policy::static_summary(&program))?
+        );
+        return Ok(());
+    }
+    if let Some(path) = &cli.docs {
+        std::fs::write(
+            path,
+            agl::documentation::markdown(&program, &cli.source.display().to_string()),
+        )?;
+        return Ok(());
+    }
+    if let Some(path) = &cli.api {
+        std::fs::write(
+            path,
+            serde_json::to_vec_pretty(&agl::documentation::api_interface(&program))?,
+        )?;
+        return Ok(());
     }
     if cli.effects {
         println!(
@@ -252,6 +362,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         cli.adapter.parse::<AdapterMode>()?,
         cli.trace_live,
         &cli.plugins,
+        policy,
     )?;
     if let Some(name) = &cli.eval {
         let definition = program
@@ -393,8 +504,12 @@ fn build_registry(
     mode: AdapterMode,
     trace_live: bool,
     plugins: &[String],
+    policy: Option<Arc<agl::policy::DeploymentPolicy>>,
 ) -> Result<agl::Registry, Box<dyn std::error::Error>> {
     let mut tools = default_tool_registry(Duration::from_secs(15))?;
+    if let Some(policy) = policy {
+        tools.set_policy(policy);
+    }
     let mut plugin_tasks = agl::Registry::default();
     for plugin in plugins {
         load_python_plugin_with_tools(&mut plugin_tasks, Some(&mut tools), plugin.clone())?;

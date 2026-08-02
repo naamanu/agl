@@ -2,6 +2,7 @@
 
 mod anthropic;
 mod openai;
+pub mod tools;
 
 pub use anthropic::AnthropicClient;
 pub use openai::OpenAiClient;
@@ -13,8 +14,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
 
-pub type ToolExecutor =
-    dyn Fn(&str, &serde_json::Map<String, Value>) -> Result<Value, AdapterError> + Send + Sync;
+pub type ToolExecutor<'a> =
+    dyn Fn(&str, &serde_json::Map<String, Value>) -> Result<Value, AdapterError> + Send + Sync + 'a;
 
 #[derive(Debug, Clone)]
 pub struct CompletionRequest<'a> {
@@ -58,7 +59,7 @@ pub trait ModelClient: Send + Sync {
         &self,
         request: CompletionRequest<'_>,
         tools: &[Value],
-        call_tool: &ToolExecutor,
+        call_tool: &ToolExecutor<'_>,
         max_round_trips: usize,
     ) -> Result<String, AdapterError>;
 }

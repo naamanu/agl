@@ -52,7 +52,8 @@ workflow blog_post(topic: String) -> String {
 - **Typed agent tasks** — `task ... by agent {}` enforces declared output shapes at runtime; `model` is optional
 - **Embeddable handler registry** — Rust applications register native task handlers through the public `Registry` API
 - **Observability** — `--output-trace` writes structured JSON execution traces
-- **Compatibility adapters** — the legacy Python CLI still supports OpenAI, Anthropic, web tools, and Python plugins while native Rust adapters are being ported
+- **Native live adapters** — OpenAI Responses and Anthropic Messages clients with validated web-tool calling
+- **Plugin migration bridge** — existing Python task plugins continue to work through `--plugin`
 - **Small dependency surface** — the Rust core uses `serde`, `serde_json`, `thiserror`, and `clap`
 
 ---
@@ -105,9 +106,18 @@ cargo run -- examples/showcase_all_features.agent --test
 # write execution trace
 cargo run -- examples/blog.agent blog_post --input '{"topic":"AI safety"}' --output-trace trace.json
 
-# compatibility CLI: live mode and Python plugins
+# native live mode — requires the provider API key
 export OPENAI_API_KEY="..."
-python main.py examples/incident_runbook.agent respond_to_incident --adapter live --trace-live --input '{"incident":"database failover drill"}'
+cargo run -- examples/incident_runbook.agent respond_to_incident --adapter openai --trace-live --input '{"incident":"database failover drill"}'
+
+# Anthropic and existing Python task plugins
+export ANTHROPIC_API_KEY="..."
+cargo run -- examples/multiagent_blog.agent publish_topic_blog --adapter anthropic --input '{"topic":"agent memory"}'
+cargo run -- examples/showcase_all_features.agent --test --plugin examples/showcase_plugin.py
+
+# interactive session and workflow lowering
+cargo run -- repl
+cargo run -- examples/newsletter.agent weekly_newsletter --lower
 ```
 
 See [Rust port status](docs/rust-port.md) for the parity matrix and migration notes.
@@ -125,6 +135,9 @@ src/
   runtime.rs    -- concurrent pipeline executor + native Registry
   stdlib.rs     -- deterministic task handlers
   context.rs    -- structured execution traces
+  adapters/     -- OpenAI, Anthropic, and validated web tools
+  formatter.rs  -- lowered pipeline IR formatter
+  plugins.rs    -- Python task-plugin migration bridge
   lib.rs        -- public embedding API
   main.rs       -- native CLI
 agentlang/

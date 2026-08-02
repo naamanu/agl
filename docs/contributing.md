@@ -39,6 +39,9 @@ This guide explains how to extend AgentLang — adding language features, new ta
 
 ```text
 src/               -- primary Rust compiler and runtime
+  adapters/        -- provider clients and native web tools
+  formatter.rs     -- lowered pipeline formatter
+  plugins.rs       -- Python task-plugin compatibility bridge
 agentlang/
   ast.py          -- AST node dataclasses
   lexer.py        -- tokenizer + string decoder

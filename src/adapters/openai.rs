@@ -66,7 +66,7 @@ impl ModelClient for OpenAiClient {
         &self,
         request: CompletionRequest<'_>,
         tools: &[Value],
-        call_tool: &ToolExecutor,
+        call_tool: &ToolExecutor<'_>,
         max_round_trips: usize,
     ) -> Result<String, AdapterError> {
         let mut payload = json!({"model":request.model,"input":input(request.prompt,request.system),"tools":tools,"parallel_tool_calls":false});

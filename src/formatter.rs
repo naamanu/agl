@@ -7,8 +7,18 @@ pub fn format_pipeline(pipeline: &PipelineDef) -> String {
         .map(|p| format!("{}: {}", p.name, format_type(&p.ty)))
         .collect::<Vec<_>>()
         .join(", ");
+    let effects = pipeline
+        .effects
+        .as_ref()
+        .map(|effects| {
+            format!(
+                " effects [{}]",
+                effects.iter().cloned().collect::<Vec<_>>().join(", ")
+            )
+        })
+        .unwrap_or_default();
     let mut lines = vec![format!(
-        "pipeline {}({params}) -> {} {{",
+        "pipeline {}({params}) -> {}{effects} {{",
         pipeline.name,
         format_type(&pipeline.return_type)
     )];

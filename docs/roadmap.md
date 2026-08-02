@@ -95,17 +95,18 @@ Acceptance criteria:
 
 ### Effect and capability system
 
-- [ ] Define built-in effects such as `model`, `network`, `filesystem`, `external_read`, `external_write`, `secret`, and `human`.
-- [ ] Let tasks and tools declare required effects.
-- [ ] Infer effects through pipeline calls and check that callers permit them.
-- [ ] Add user-defined capability names without allowing them to weaken built-in safety rules.
-- [ ] Surface effect sets in lowered output and documentation generation.
+- [x] Define built-in effects such as `model`, `network`, `filesystem`, `external_read`, `external_write`, `secret`, and `human`.
+- [x] Let tasks and tools declare required effects.
+- [x] Infer effects through pipeline calls and check that callers permit them.
+- [x] Add user-defined capability names without allowing them to weaken built-in safety rules.
+- [x] Surface declared effect sets in lowered output and the language documentation.
+- [ ] Include inferred effect sets in generated package/API documentation when documentation generation lands in 0.6.
 
 ### Retry and idempotency safety
 
-- [ ] Declare tasks as pure, idempotent, keyed-idempotent, or non-idempotent.
-- [ ] Reject unsafe retry policies on side-effecting non-idempotent tasks.
-- [ ] Support retry predicates over typed failures.
+- [x] Declare tasks and tools as pure, idempotent, keyed-idempotent, or non-idempotent.
+- [x] Reject unsafe retry policies on side-effecting non-idempotent tasks and agent tools.
+- [x] Support retry predicates over typed failures.
 - [ ] Add bounded exponential backoff and jitter policies with deterministic test control.
 - [ ] Attach stable invocation and idempotency keys to traces and adapter calls.
 

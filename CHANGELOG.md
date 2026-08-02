@@ -1,6 +1,11 @@
 # Changelog
 
-## 0.3.0 — Unreleased
+## 0.4.0 — Unreleased
+
+- Added transitive effect inference and declared pipeline effect ceilings.
+- Added task/tool idempotency contracts and static retry-safety enforcement.
+
+## 0.3.0 — 2026-08-02
 
 - Added version-gated nominal records, tagged unions, `Result[T, E]`, and exhaustive `match`.
 - Added stable tagged JSON encodings for unions and typed outcomes.

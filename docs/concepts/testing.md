@@ -65,7 +65,7 @@ test "countdown reaches done" {
 ## Running tests
 
 ```bash
-python main.py examples/showcase_all_features.agent --test
+cargo run -- examples/showcase_all_features.agent --test
 ```
 
 The `--test` flag runs all test blocks in the file. No pipeline name is needed.
@@ -94,7 +94,7 @@ PASS  countdown reaches done
 Test blocks use the same task registry as normal execution. If your tests depend on plugin-provided handlers, load the plugin:
 
 ```bash
-python main.py examples/showcase_all_features.agent --test \
+cargo run -- examples/showcase_all_features.agent --test \
   --plugin examples/showcase_plugin.py
 ```
 

@@ -1,0 +1,2 @@
+type Name = String;
+type Name = Number;

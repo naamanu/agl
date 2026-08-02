@@ -19,14 +19,21 @@ pub enum Kind {
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
-#[error("{message} at {line}:{col}")]
+#[error("[AGL0001] {message} at {line}:{col}")]
 pub struct LexError {
     pub message: String,
     pub line: usize,
     pub col: usize,
 }
 
+impl LexError {
+    pub const fn code(&self) -> &'static str {
+        "AGL0001"
+    }
+}
+
 const KEYWORDS: &[&str] = &[
+    "language",
     "agent",
     "tool",
     "task",

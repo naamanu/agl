@@ -46,7 +46,7 @@ task respond(intent: String, queue: String) -> Obj{reply: String} {}
 ```
 
 !!! note "Task bodies are always empty"
-    The `{}` body is intentional. Task *signatures* live in the DSL; task *behavior* is supplied by Python handlers at runtime. This separation keeps the language simple and the runtime extensible.
+    The `{}` body is intentional. Task *signatures* live in the DSL; task *behavior* is supplied by registered Rust handlers, native adapters, or the Python migration bridge at runtime. This separation keeps the language small and the runtime extensible.
 
 ## Step 3: Write the pipeline
 
@@ -77,7 +77,7 @@ The pipeline:
 ## Step 4: Run it
 
 ```bash
-python main.py my_support.agent support_reply \
+cargo run -- my_support.agent support_reply \
   --input '{"message":"urgent refund request"}'
 ```
 

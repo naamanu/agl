@@ -23,7 +23,7 @@ agent planner {
   , tools: [web_search]
 }
 
--- model omitted — uses AGENTLANG_DEFAULT_MODEL or mock default
+-- model omitted — uses the selected adapter's default
 agent writer {
   tools: []
 }
@@ -31,7 +31,7 @@ agent writer {
 
 ## Rules
 
-- `model` is optional. When omitted, it defaults to `None` and the runtime falls back to `AGENTLANG_DEFAULT_MODEL` (live/anthropic mode) or the default mock handler. In anthropic mode, OpenAI model names are automatically mapped to Claude equivalents (see [Model mapping](../reference/adapters.md#model-mapping)).
+- `model` is optional. When omitted, the runtime uses the selected adapter's default model or the mock handler. `AGL_OPENAI_MODEL` and `AGL_ANTHROPIC_MODEL` provide deployment-wide overrides (see [Model mapping](../reference/adapters.md#model-mapping)).
 - `tools` is required. Use `[]` for an empty tool list.
 - Tool names are identifiers and must be declared with `tool` definitions in the DSL.
 - Agent names must be unique within a file.
@@ -45,7 +45,7 @@ Reference an agent in a pipeline run statement with `by`:
 let r = run research with { topic: topic } by planner;
 ```
 
-When `by` is omitted, the runtime falls back to the `AGENTLANG_DEFAULT_MODEL` environment variable (in live/anthropic mode) or the default mock handler.
+When `by` is omitted for a standard task handled by a live adapter, the runtime uses that adapter's configured default model. Tasks declared `by agent` require an explicit agent binding.
 
 In workflows, the agent is attached directly to the step:
 
@@ -58,8 +58,8 @@ stage plan = planner does draft_outline(topic);
 | Situation | Model used |
 |---|---|
 | `by agent_name` present, `model` declared | `agent_name.model` from the DSL (mapped in anthropic mode) |
-| `by agent_name` present, `model` omitted | `AGENTLANG_DEFAULT_MODEL` env var (live/anthropic) or mock default |
-| `by` omitted, live/anthropic mode | `AGENTLANG_DEFAULT_MODEL` env var |
+| `by agent_name` present, `model` omitted | Provider default or `AGL_OPENAI_MODEL` / `AGL_ANTHROPIC_MODEL` override |
+| `by` omitted, live provider mode | Provider default or deployment override |
 | `by` omitted, mock mode | no model needed |
 
 ## Tools

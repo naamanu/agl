@@ -4,22 +4,22 @@ This guide gets you from zero to a running AgentLang pipeline or workflow in fiv
 
 ## Prerequisites
 
-- Python 3.14+
+- Rust 1.94.1+ (the repository pins the supported toolchain)
 - This repository cloned locally
 
-Verify your Python version:
+Verify your Rust toolchain:
 
 ```bash
-python3 --version
-# Python 3.14.x
+rustc --version
+# rustc 1.94.1 or newer
 ```
 
 ## 1. Verify the install
 
-AgentLang has no external dependencies in its core. Run a syntax check to confirm everything is wired up:
+Build and test the native implementation to confirm everything is wired up:
 
 ```bash
-python -m py_compile main.py agentlang/*.py agentlang/adapters/*.py
+cargo test --locked
 ```
 
 No output means success.
@@ -29,7 +29,7 @@ No output means success.
 The `blog.agent` example defines a simple two-step pipeline: research a topic, then draft an article.
 
 ```bash
-python main.py examples/blog.agent blog_post \
+cargo run -- examples/blog.agent blog_post \
   --input '{"topic":"agent memory patterns"}'
 ```
 
@@ -49,14 +49,14 @@ Output:
 The higher-level `workflow` surface is the recommended authoring model for multi-agent handoffs and review loops.
 
 ```bash
-python main.py examples/multiagent_blog.agent publish_topic_blog \
+cargo run -- examples/multiagent_blog.agent publish_topic_blog \
   --input '{"topic":"agent memory systems"}'
 ```
 
 Lower it to explicit pipeline IR:
 
 ```bash
-python main.py examples/multiagent_blog.agent publish_topic_blog --lower
+cargo run -- examples/multiagent_blog.agent publish_topic_blog --lower
 ```
 
 This shows the generated `run`, `while`, and `break` structure that the runtime actually executes.
@@ -66,7 +66,7 @@ This shows the generated `run`, `while`, and `break` structure that the runtime 
 The `compare.agent` pipeline runs two research tasks in parallel, then merges results:
 
 ```bash
-python main.py examples/compare.agent compare_options \
+cargo run -- examples/compare.agent compare_options \
   --input '{"query":"vector database"}'
 ```
 
@@ -87,7 +87,7 @@ The `reliability.agent` pipeline uses `retries` and `on_fail use` to handle tran
 Run with a low failure count (succeeds before fallback kicks in):
 
 ```bash
-python main.py examples/reliability.agent resilient_brief \
+cargo run -- examples/reliability.agent resilient_brief \
   --input '{"topic":"api-status","fail_count":1}'
 ```
 
@@ -100,7 +100,7 @@ python main.py examples/reliability.agent resilient_brief \
 Force the fallback by exceeding the retry budget:
 
 ```bash
-python main.py examples/reliability.agent resilient_brief \
+cargo run -- examples/reliability.agent resilient_brief \
   --input '{"topic":"api-status","fail_count":5}'
 ```
 
@@ -118,7 +118,7 @@ python main.py examples/reliability.agent resilient_brief \
 For interactive exploration:
 
 ```bash
-python main.py repl --adapter mock
+cargo run -- repl --adapter mock
 ```
 
 ```
@@ -137,7 +137,7 @@ Each line at the `>` prompt takes the form `<source_file> <pipeline_or_workflow_
 When debugging live agent behavior, enable tracing. This works with both `--adapter live` (OpenAI) and `--adapter anthropic` (Claude):
 
 ```bash
-python main.py examples/incident_runbook.agent respond_to_incident \
+cargo run -- examples/incident_runbook.agent respond_to_incident \
   --adapter live \
   --trace-live \
   --input '{"incident":"database failover drill"}'
@@ -146,7 +146,7 @@ python main.py examples/incident_runbook.agent respond_to_incident \
 Or with Anthropic/Claude:
 
 ```bash
-python main.py examples/incident_runbook.agent respond_to_incident \
+cargo run -- examples/incident_runbook.agent respond_to_incident \
   --adapter anthropic \
   --trace-live \
   --input '{"incident":"database failover drill"}'

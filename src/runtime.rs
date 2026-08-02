@@ -31,9 +31,14 @@ impl Registry {
 }
 
 #[derive(Debug, Error)]
-#[error("{message}")]
+#[error("[AGL3001] {message}")]
 pub struct ExecutionError {
     pub message: String,
+}
+impl ExecutionError {
+    pub const fn code(&self) -> &'static str {
+        "AGL3001"
+    }
 }
 enum Flow {
     Next,

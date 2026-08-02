@@ -1,0 +1,5 @@
+language "9.0";
+
+pipeline main() -> String {
+  return "future";
+}

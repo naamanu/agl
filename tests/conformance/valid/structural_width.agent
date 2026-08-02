@@ -1,0 +1,3 @@
+pipeline main(name: String) -> Obj{name: String} {
+  return {name: name, retained: "extra fields are permitted"};
+}

@@ -7,7 +7,7 @@ Adapters determine how task handlers are executed. AgentLang ships with three: `
 Mock mode uses local Python handlers that return structured placeholder values. No external API calls are made.
 
 ```bash
-python main.py examples/blog.agent blog_post \
+cargo run -- examples/blog.agent blog_post \
   --input '{"topic":"agent memory patterns"}'
 ```
 
@@ -30,7 +30,7 @@ Live mode routes LLM-backed tasks to the OpenAI Responses API and activates type
 ```bash
 export OPENAI_API_KEY="sk-..."
 
-python main.py examples/blog.agent blog_post \
+cargo run -- examples/blog.agent blog_post \
   --adapter live \
   --input '{"topic":"agent memory patterns"}'
 ```
@@ -42,7 +42,7 @@ Anthropic mode routes LLM-backed tasks to the Anthropic Messages API using Claud
 ```bash
 export ANTHROPIC_API_KEY="sk-ant-..."
 
-python main.py examples/blog.agent blog_post \
+cargo run -- examples/blog.agent blog_post \
   --adapter anthropic \
   --input '{"topic":"agent memory patterns"}'
 ```
@@ -89,9 +89,7 @@ agent planner {
 }
 ```
 
-```bash
-export AGENTLANG_WEB_RESULTS=10   # fetch 10 results instead of the default 5
-```
+The native built-in currently returns at most five results per call. Applications that need different search behavior can supply their own `ToolRegistry` handler.
 
 In mock mode, `web_search` in the tools list is parsed and stored but has no effect.
 
@@ -134,10 +132,10 @@ This means agent tasks work reliably with both OpenAI and Claude without any cha
 
 ## Live tracing
 
-Use `--trace-live` or `AGENTLANG_TRACE_LIVE=1` to print live execution trace lines to `stderr`. This works with both `--adapter live` and `--adapter anthropic`.
+Use `--trace-live` to print live execution trace lines to `stderr`. This works with both `--adapter openai` and `--adapter anthropic`.
 
 ```bash
-python main.py examples/incident_runbook.agent respond_to_incident \
+cargo run -- examples/incident_runbook.agent respond_to_incident \
   --adapter live \
   --trace-live \
   --input '{"incident":"database failover drill"}'
@@ -163,23 +161,20 @@ Example trace lines (Anthropic):
 
 The model used for a task is determined by:
 
-1. The `agent` bound via `by agent_name` → uses `agent_name.model` from the DSL
-2. No `by` clause → uses `AGENTLANG_DEFAULT_MODEL` env var (live/anthropic mode only)
-3. In anthropic mode, the resolved model name is mapped from OpenAI to Claude equivalents (see [Model mapping](#model-mapping) above)
+1. `AGL_OPENAI_MODEL` or `AGL_ANTHROPIC_MODEL`, when set for the selected provider.
+2. The model declared by the agent bound with `by agent_name`.
+3. The native provider default when the declaration omits a model.
+
+Legacy model declarations are mapped by provider and capability tier. Deployment overrides allow model upgrades without editing `.agent` source.
 
 ## Environment variables
 
 | Variable | Default | Description |
 |---|---|---|
-| `OPENAI_API_KEY` | — | Required for `--adapter live` |
-| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | Override for custom OpenAI endpoints or proxies |
+| `OPENAI_API_KEY` | — | Required for `--adapter openai` (`live` is a compatibility alias) |
 | `ANTHROPIC_API_KEY` | — | Required for `--adapter anthropic` |
-| `ANTHROPIC_BASE_URL` | `https://api.anthropic.com` | Override for custom Anthropic endpoints or proxies |
-| `AGENTLANG_ADAPTER` | `mock` | Set default adapter without `--adapter` flag |
-| `AGENTLANG_DEFAULT_MODEL` | `gpt-4.1-mini` | Fallback model when no `by` binding (mapped automatically in anthropic mode) |
-| `AGENTLANG_WEB_RESULTS` | `5` | DuckDuckGo results for `research` in live/anthropic mode |
-| `AGENTLANG_HTTP_TIMEOUT_S` | `20` | Timeout in seconds for HTTP calls |
-| `AGENTLANG_TRACE_LIVE` | `0` | Enable live tracing without passing `--trace-live` |
+| `AGL_OPENAI_MODEL` | `gpt-5.6-sol` | Global OpenAI model override |
+| `AGL_ANTHROPIC_MODEL` | provider default | Global Anthropic model override |
 
 ## Error handling
 
@@ -193,7 +188,7 @@ Execution error: <adapter timeout message>
 Execution error: Task 'draft_response_plan' by agent 'researcher' failed after 1 attempts. Last error: RuntimeError: LLM call failed: ...
 ```
 
-The `--adapter live` or `--adapter anthropic` flag enables the respective adapter for a single run without setting `AGENTLANG_ADAPTER` permanently.
+The `--adapter openai` or `--adapter anthropic` flag enables the respective adapter. `--adapter live` remains an alias for OpenAI compatibility.
 
 !!! warning "Security"
     Never hardcode `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` in `.agent` files, source code, or documentation. Use environment variables or your shell profile.

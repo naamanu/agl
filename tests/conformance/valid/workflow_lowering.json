@@ -1,0 +1,6 @@
+{
+  "source": "valid/workflow_lowering.agent",
+  "phase": "lower",
+  "pipeline": "build",
+  "contains": "let result = run make"
+}

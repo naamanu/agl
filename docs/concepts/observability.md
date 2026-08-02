@@ -16,7 +16,7 @@ The `ExecutionContext` (defined in `agentlang/context.py`) records structured ev
 Pass `--output-trace PATH` to write the trace after execution:
 
 ```bash
-python main.py examples/showcase_all_features.agent produce \
+cargo run -- examples/showcase_all_features.agent produce \
   --input '{"topic":"AI safety"}' \
   --output-trace trace.json
 ```

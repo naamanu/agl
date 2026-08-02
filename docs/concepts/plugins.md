@@ -55,7 +55,7 @@ The return value must match the tool's declared return type.
 Use the `--plugin` flag to load a plugin at startup:
 
 ```bash
-python main.py examples/showcase_all_features.agent produce \
+cargo run -- examples/showcase_all_features.agent produce \
   --input '{"topic":"AI safety"}' \
   --plugin examples/showcase_plugin.py
 ```

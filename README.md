@@ -1,6 +1,6 @@
 # AgentLang
 
-A tiny, self-contained DSL for agentic workflows. Define agents, typed tasks, declarative workflows, and low-level pipelines. The primary implementation is now a native Rust library and CLI; the original Python implementation remains as a compatibility oracle and currently provides the live model adapters.
+A tiny, self-contained DSL for agentic workflows. Define agents, typed tasks, declarative workflows, and low-level pipelines. The primary implementation is a native Rust library and CLI with native OpenAI and Anthropic adapters; the original Python implementation remains as a compatibility oracle and plugin-migration bridge.
 
 ```agentlang
 tool web_search(query: String) -> List[Obj{title: String, url: String, snippet: String}] {}

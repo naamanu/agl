@@ -88,7 +88,7 @@ pipeline resilient_brief(topic: String, fail_count: Number) -> String {
 Run it — succeeds within retry budget:
 
 ```bash
-python main.py examples/reliability.agent resilient_brief \
+cargo run -- examples/reliability.agent resilient_brief \
   --input '{"topic":"api-status","fail_count":1}'
 ```
 
@@ -101,7 +101,7 @@ python main.py examples/reliability.agent resilient_brief \
 Run it — exhausts retries, uses fallback:
 
 ```bash
-python main.py examples/reliability.agent resilient_brief \
+cargo run -- examples/reliability.agent resilient_brief \
   --input '{"topic":"api-status","fail_count":5}'
 ```
 

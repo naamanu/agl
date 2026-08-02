@@ -1,0 +1,3 @@
+pipeline main() -> String {
+  return "missing semicolon"
+}

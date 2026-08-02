@@ -1,0 +1,5 @@
+{
+  "source": "invalid/type.agent",
+  "phase": "reject",
+  "code": "AGL2001"
+}

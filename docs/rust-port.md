@@ -1,6 +1,6 @@
 # Rust port status
 
-AGL 0.2 introduces a native Rust implementation while preserving the Python implementation as an executable specification during migration.
+AGL 0.2 introduces a native Rust implementation as the normative compiler and runtime while preserving the Python implementation as a compatibility oracle during migration. The versioned contract is [the AGL 0.2 specification](../spec/agl-0.2.md).
 
 ## Native parity
 

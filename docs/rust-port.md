@@ -21,7 +21,7 @@ AGL 0.2 introduces a native Rust implementation while preserving the Python impl
 | OpenAI and Anthropic adapters | Complete |
 | Web tool adapters | Complete |
 | Dynamic Python task plugins | Complete via migration bridge |
-| Dynamic Python tool plugins | Python compatibility CLI |
+| Dynamic Python tool plugins | Complete via migration bridge |
 | Interactive REPL and lowered-IR printer | Complete |
 
 All checked-in `.agent` examples are parsed and checked by the Rust integration suite. Deterministic blog, support-routing, and retry paths have also been compared directly with the Python results.
@@ -46,4 +46,4 @@ cargo run -- examples/showcase_all_features.agent --check
 python3 -m unittest discover -s tests
 ```
 
-The Python suite remains required while the reference implementation is retained. Python task plugins run through an isolated JSON subprocess bridge; native applications should use the Rust `Registry` API. Python plugins that register custom tools still require the compatibility CLI.
+The Python suite remains required while the reference implementation is retained. Python task and tool plugins run through an isolated JSON subprocess bridge; native applications should use the Rust `Registry` and `ToolRegistry` APIs.

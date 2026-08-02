@@ -24,6 +24,10 @@ impl Registry {
     pub fn contains(&self, n: &str) -> bool {
         self.handlers.contains_key(n)
     }
+
+    pub fn extend(&mut self, other: Registry) {
+        self.handlers.extend(other.handlers);
+    }
 }
 
 #[derive(Debug, Error)]

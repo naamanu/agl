@@ -3,6 +3,7 @@
 //! Calls use an isolated Python process and a small JSON protocol. Native Rust
 //! applications should prefer registering handlers directly on `Registry`.
 
+use crate::adapters::tools::{ToolError, ToolRegistry};
 use crate::runtime::Registry;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -45,7 +46,11 @@ if mode == 'manifest':
 else:
     name = sys.argv[3]
     payload = json.load(sys.stdin)
-    print(json.dumps(registry.tasks[name](payload['args'], payload.get('agent'))))
+    if mode == 'call-task':
+        result = registry.tasks[name](payload['args'], payload.get('agent'))
+    else:
+        result = registry.tools[name](payload['args'])
+    print(json.dumps(result))
 "#;
 
 #[derive(Debug, Error)]
@@ -68,6 +73,14 @@ pub fn load_python_plugin(
     registry: &mut Registry,
     plugin: impl Into<String>,
 ) -> Result<PluginManifest, PluginError> {
+    load_python_plugin_with_tools(registry, None, plugin)
+}
+
+pub fn load_python_plugin_with_tools(
+    registry: &mut Registry,
+    mut tools: Option<&mut ToolRegistry>,
+    plugin: impl Into<String>,
+) -> Result<PluginManifest, PluginError> {
     let plugin = plugin.into();
     let output = Command::new("python3")
         .args(["-c", BRIDGE, "manifest", &plugin])
@@ -86,20 +99,34 @@ pub fn load_python_plugin(
     for task in &manifest.tasks {
         let (plugin, task) = (plugin.clone(), task.clone());
         registry.register(task.clone(), move |args, agent| {
-            call_python_task(&plugin, &task, args, agent).map_err(|e| e.to_string())
+            call_python(&plugin, &task, "call-task", args, agent).map_err(|e| e.to_string())
         });
+    }
+    if let Some(registry) = tools.as_mut() {
+        for tool in &manifest.tools {
+            let (plugin, tool) = (plugin.clone(), tool.clone());
+            registry.register(tool.clone(), move |args| {
+                call_python(&plugin, &tool, "call-tool", args, None).map_err(|e| {
+                    ToolError::Network {
+                        tool: tool.clone(),
+                        detail: e.to_string(),
+                    }
+                })
+            });
+        }
     }
     Ok(manifest)
 }
 
-fn call_python_task(
+fn call_python<T: serde::Serialize + ?Sized>(
     plugin: &str,
-    task: &str,
-    args: &std::collections::BTreeMap<String, Value>,
+    handler: &str,
+    mode: &str,
+    args: &T,
     agent: Option<&str>,
 ) -> Result<Value, PluginError> {
     let mut child = Command::new("python3")
-        .args(["-c", BRIDGE, "call-task", plugin, task])
+        .args(["-c", BRIDGE, mode, plugin, handler])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -155,5 +182,31 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result, "[Enriched context for 'Rust']");
+    }
+
+    #[test]
+    fn loads_and_executes_python_tool_plugin() {
+        let program =
+            parse_program("tool uppercase(text: String) -> Obj{text: String} {}").unwrap();
+        let mut tasks = Registry::default();
+        let mut tools = ToolRegistry::default();
+        let manifest = load_python_plugin_with_tools(
+            &mut tasks,
+            Some(&mut tools),
+            "tests/fixtures/tool_plugin.py",
+        )
+        .unwrap();
+        assert_eq!(manifest.tools, vec!["uppercase"]);
+        let result = tools
+            .execute(
+                &program,
+                "uppercase",
+                &serde_json::Map::from_iter([(
+                    "text".into(),
+                    Value::String("agent language".into()),
+                )]),
+            )
+            .unwrap();
+        assert_eq!(result, json!({"text":"AGENT LANGUAGE"}));
     }
 }

@@ -90,6 +90,7 @@ Strict validation before execution runs:
 # build and test the native implementation
 cargo build --release
 cargo test
+cargo install --path .
 
 # deterministic mock mode — no API key needed
 cargo run -- examples/blog.agent blog_post --input '{"topic":"agent memory patterns"}'
@@ -137,7 +138,7 @@ src/
   context.rs    -- structured execution traces
   adapters/     -- OpenAI, Anthropic, and validated web tools
   formatter.rs  -- lowered pipeline IR formatter
-  plugins.rs    -- Python task-plugin migration bridge
+  plugins.rs    -- Python task/tool-plugin migration bridge
   lib.rs        -- public embedding API
   main.rs       -- native CLI
 agentlang/

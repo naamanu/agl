@@ -33,11 +33,23 @@ impl Registry {
 #[derive(Debug, Error)]
 #[error("[AGL3001] {message}")]
 pub struct ExecutionError {
+    pub kind: &'static str,
     pub message: String,
+    pub operation: Option<String>,
+    pub retryable: bool,
 }
 impl ExecutionError {
     pub const fn code(&self) -> &'static str {
         "AGL3001"
+    }
+
+    pub fn as_value(&self) -> Value {
+        json!({
+            "kind": self.kind,
+            "message": self.message,
+            "operation": self.operation,
+            "retryable": self.retryable,
+        })
     }
 }
 enum Flow {
@@ -199,23 +211,72 @@ fn block(
             Stmt::TryCatch {
                 try_body,
                 error_var,
+                structured,
                 catch_body,
                 ..
             } => {
                 if let Err(e) = block(try_body, p, env, reg, ctx, depth) {
-                    env.insert(error_var.clone(), Value::String(e.to_string()));
+                    env.insert(
+                        error_var.clone(),
+                        if *structured {
+                            e.as_value()
+                        } else {
+                            Value::String(e.to_string())
+                        },
+                    );
                     let f = block(catch_body, p, env, reg, ctx, depth)?;
                     if !matches!(f, Flow::Next) {
                         return Ok(f);
                     }
                 }
             }
+            Stmt::Match { value, arms, .. } => {
+                let matched = eval(value, env)?;
+                let object = matched
+                    .as_object()
+                    .ok_or_else(|| fail("match value is not a tagged object"))?;
+                let type_name = object
+                    .get("$type")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| fail("match value has no $type tag"))?;
+                let variant = object
+                    .get("$variant")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| fail("match value has no $variant tag"))?;
+                let arm = arms
+                    .iter()
+                    .find(|arm| arm.type_name == type_name && arm.variant == variant)
+                    .ok_or_else(|| fail(format!("no match arm for '{type_name}::{variant}'")))?;
+                let mut previous = Vec::new();
+                for binding in &arm.bindings {
+                    let value = object.get(binding).cloned().ok_or_else(|| {
+                        fail(format!(
+                            "variant '{type_name}::{variant}' has no '{binding}'"
+                        ))
+                    })?;
+                    previous.push((binding.clone(), env.insert(binding.clone(), value)));
+                }
+                let flow = block(&arm.body, p, env, reg, ctx, depth)?;
+                for (binding, old) in previous {
+                    if let Some(value) = old {
+                        env.insert(binding, value);
+                    } else {
+                        env.remove(&binding);
+                    }
+                }
+                if !matches!(flow, Flow::Next) {
+                    return Ok(flow);
+                }
+            }
             Stmt::Assert {
                 condition, message, ..
             } => {
                 if !truthy(&eval(condition, env)?) {
-                    return Err(fail(
+                    return Err(failure(
+                        "assertion",
                         message.clone().unwrap_or_else(|| "assertion failed".into()),
+                        None,
+                        false,
                     ));
                 }
             }
@@ -251,24 +312,33 @@ fn run(
         .get(&r.callable)
         .ok_or_else(|| fail(format!("no handler registered for task '{}'", r.callable)))?;
     let attempts = r.retries + 1;
-    let mut last = String::new();
+    let mut last = None;
+    let mut attempts_made = 0;
     for attempt in 1..=attempts {
+        attempts_made = attempt;
         ctx.record(
             "task_attempt",
             json!({"task":r.callable,"attempt":attempt,"agent":r.agent}),
         );
-        let result = if let Some(seconds) = r.timeout {
+        let result: Result<Value, ExecutionError> = if let Some(seconds) = r.timeout {
             let (sender, receiver) = std::sync::mpsc::sync_channel(1);
             let (handler, owned_args, agent) = (h.clone(), args.clone(), r.agent.clone());
             std::thread::spawn(move || {
                 let _ = sender.send(handler(&owned_args, agent.as_deref()));
             });
-            receiver
-                .recv_timeout(std::time::Duration::from_secs_f64(seconds))
-                .map_err(|_| format!("timed out after {seconds}s"))
-                .and_then(|result| result)
+            match receiver.recv_timeout(std::time::Duration::from_secs_f64(seconds)) {
+                Ok(result) => result
+                    .map_err(|message| failure("task", message, Some(r.callable.clone()), true)),
+                Err(_) => Err(failure(
+                    "timeout",
+                    format!("timed out after {seconds}s"),
+                    Some(r.callable.clone()),
+                    false,
+                )),
+            }
         } else {
             h(&args, r.agent.as_deref())
+                .map_err(|message| failure("task", message, Some(r.callable.clone()), true))
         };
         match result {
             Ok(v) => {
@@ -278,18 +348,66 @@ fn run(
                         r.callable
                     )));
                 }
+                if attempt < attempts && retryable_typed_error(&v, &r.retry_on) {
+                    ctx.record(
+                        "task_retry",
+                        json!({"task":r.callable,"attempt":attempt,"reason":"typed_error"}),
+                    );
+                    continue;
+                }
                 return Ok(v);
             }
-            Err(e) => last = e,
+            Err(error) => {
+                let retryable = error.retryable;
+                last = Some(error);
+                if !retryable {
+                    break;
+                }
+            }
         }
     }
     match &r.on_fail {
         OnFail::Use(e) => eval(e, env),
-        OnFail::Abort => Err(fail(format!(
-            "task '{}' failed after {attempts} attempt(s): {last}",
-            r.callable
-        ))),
+        OnFail::Abort => {
+            let last = last.unwrap_or_else(|| {
+                failure(
+                    "task",
+                    "task failed without an error",
+                    Some(r.callable.clone()),
+                    false,
+                )
+            });
+            Err(failure(
+                last.kind,
+                format!(
+                    "task '{}' failed after {attempts_made} attempt(s): {}",
+                    r.callable, last.message
+                ),
+                Some(r.callable.clone()),
+                last.retryable,
+            ))
+        }
     }
+}
+fn retryable_typed_error(value: &Value, selectors: &[(String, String)]) -> bool {
+    if selectors.is_empty()
+        || value.get("$type").and_then(Value::as_str) != Some("Result")
+        || value.get("$variant").and_then(Value::as_str) != Some("Err")
+    {
+        return false;
+    }
+    let Some(error) = value.get("error") else {
+        return false;
+    };
+    let (Some(type_name), Some(variant)) = (
+        error.get("$type").and_then(Value::as_str),
+        error.get("$variant").and_then(Value::as_str),
+    ) else {
+        return false;
+    };
+    selectors
+        .iter()
+        .any(|selector| selector.0 == type_name && selector.1 == variant)
 }
 fn eval(e: &Expr, env: &BTreeMap<String, Value>) -> Result<Value, ExecutionError> {
     match e {
@@ -305,12 +423,32 @@ fn eval(e: &Expr, env: &BTreeMap<String, Value>) -> Result<Value, ExecutionError
             }
             Ok(v.clone())
         }
-        Expr::Obj { fields, .. } => Ok(Value::Object(
+        Expr::Obj { fields, .. } | Expr::Record { fields, .. } => Ok(Value::Object(
             fields
                 .iter()
                 .map(|(k, v)| Ok((k.clone(), eval(v, env)?)))
                 .collect::<Result<Map<_, _>, ExecutionError>>()?,
         )),
+        Expr::Variant {
+            type_name,
+            variant,
+            fields,
+            ..
+        } => {
+            let mut object = Map::from_iter([
+                ("$type".into(), Value::String(type_name.clone())),
+                ("$variant".into(), Value::String(variant.clone())),
+            ]);
+            for (field, expression) in fields {
+                object.insert(field.clone(), eval(expression, env)?);
+            }
+            Ok(Value::Object(object))
+        }
+        Expr::Result { ok, value, .. } => Ok(json!({
+            "$type": "Result",
+            "$variant": if *ok { "Ok" } else { "Err" },
+            if *ok { "value" } else { "error" }: eval(value, env)?,
+        })),
         Expr::List { items, .. } => Ok(Value::Array(
             items
                 .iter()
@@ -366,13 +504,58 @@ fn value_matches(v: &Value, t: &TypeExpr, p: &Program) -> bool {
         TypeExpr::String => v.is_string(),
         TypeExpr::Number => v.is_number(),
         TypeExpr::Bool => v.is_boolean(),
+        TypeExpr::Failure => v.as_object().is_some_and(|object| {
+            object.get("kind").is_some_and(Value::is_string)
+                && object.get("message").is_some_and(Value::is_string)
+                && object
+                    .get("operation")
+                    .is_some_and(|value| value.is_null() || value.is_string())
+                && object.get("retryable").is_some_and(Value::is_boolean)
+        }),
         TypeExpr::List(x) => v
             .as_array()
             .is_some_and(|a| a.iter().all(|v| value_matches(v, x, p))),
         TypeExpr::Option(x) => v.is_null() || value_matches(v, x, p),
+        TypeExpr::Result(ok, error) => v.as_object().is_some_and(|object| {
+            object.get("$type").and_then(Value::as_str) == Some("Result")
+                && match object.get("$variant").and_then(Value::as_str) {
+                    Some("Ok") => object
+                        .get("value")
+                        .is_some_and(|value| value_matches(value, ok, p)),
+                    Some("Err") => object
+                        .get("error")
+                        .is_some_and(|value| value_matches(value, error, p)),
+                    _ => false,
+                }
+        }),
         TypeExpr::Obj(fs) => v.as_object().is_some_and(|o| {
             fs.iter()
                 .all(|(k, t)| o.get(k).is_some_and(|v| value_matches(v, t, p)))
+        }),
+        TypeExpr::Record(name) => p.records.get(name).is_some_and(|record| {
+            v.as_object().is_some_and(|object| {
+                record.fields.iter().all(|(field, ty)| {
+                    object
+                        .get(field)
+                        .is_some_and(|value| value_matches(value, ty, p))
+                })
+            })
+        }),
+        TypeExpr::Union(name) => p.unions.get(name).is_some_and(|union| {
+            v.as_object().is_some_and(|object| {
+                object.get("$type").and_then(Value::as_str) == Some(name)
+                    && object
+                        .get("$variant")
+                        .and_then(Value::as_str)
+                        .and_then(|variant| union.variants.get(variant))
+                        .is_some_and(|fields| {
+                            fields.iter().all(|(field, ty)| {
+                                object
+                                    .get(field)
+                                    .is_some_and(|value| value_matches(value, ty, p))
+                            })
+                        })
+            })
         }),
         TypeExpr::Enum(n) => v
             .as_str()
@@ -391,7 +574,18 @@ fn truthy(v: &Value) -> bool {
     }
 }
 fn fail(message: impl Into<String>) -> ExecutionError {
+    failure("runtime", message, None, false)
+}
+fn failure(
+    kind: &'static str,
+    message: impl Into<String>,
+    operation: Option<String>,
+    retryable: bool,
+) -> ExecutionError {
     ExecutionError {
+        kind,
         message: message.into(),
+        operation,
+        retryable,
     }
 }

@@ -63,6 +63,7 @@ const KEYWORDS: &[&str] = &[
     "continue",
     "null",
     "retries",
+    "retry_on",
     "on_fail",
     "abort",
     "use",
@@ -70,9 +71,12 @@ const KEYWORDS: &[&str] = &[
     "true",
     "false",
     "type",
+    "record",
+    "union",
     "enum",
     "try",
     "catch",
+    "match",
     "assert",
     "test",
 ];
@@ -201,7 +205,7 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
             continue;
         }
         let two = chars.get(i + 1).map(|b| format!("{ch}{b}"));
-        if matches!(two.as_deref(), Some("->" | "==" | "!=")) {
+        if matches!(two.as_deref(), Some("->" | "==" | "!=" | "::" | "=>")) {
             out.push(Token {
                 kind: Kind::Symbol,
                 text: two.unwrap(),

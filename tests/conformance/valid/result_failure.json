@@ -1,0 +1,6 @@
+{
+  "source": "valid/result_match.agent",
+  "phase": "execute",
+  "pipeline": "failure",
+  "expected": "invalid"
+}

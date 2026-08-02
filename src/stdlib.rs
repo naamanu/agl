@@ -133,12 +133,16 @@ pub fn default_registry(program: &Program) -> Registry {
         let ty = task.return_type.clone();
         let label = task.name.clone();
         let enums = program.enums.clone();
+        let records = program.records.clone();
+        let unions = program.unions.clone();
         r.register(task.name.clone(), move |args, agent| {
             Ok(mock(
                 &ty,
                 &format!("{} via {}", label, agent.unwrap_or("default-agent")),
                 args,
                 &enums,
+                &records,
+                &unions,
             ))
         })
     }
@@ -288,6 +292,8 @@ fn mock(
     label: &str,
     args: &BTreeMap<String, Value>,
     enums: &BTreeMap<String, Vec<String>>,
+    records: &BTreeMap<String, crate::ast::RecordDef>,
+    unions: &BTreeMap<String, crate::ast::UnionDef>,
 ) -> Value {
     match t {
         TypeExpr::String => Value::String(
@@ -303,8 +309,19 @@ fn mock(
         ),
         TypeExpr::Number => json!(0),
         TypeExpr::Bool => Value::Bool(false),
+        TypeExpr::Failure => json!({
+            "kind":"mock",
+            "message":format!("[{label}]"),
+            "operation":null,
+            "retryable":false
+        }),
         TypeExpr::List(_) => json!([]),
         TypeExpr::Option(_) => Value::Null,
+        TypeExpr::Result(ok, _) => json!({
+            "$type": "Result",
+            "$variant": "Ok",
+            "value": mock(ok, label, args, enums, records, unions),
+        }),
         TypeExpr::Enum(n) => enums
             .get(n)
             .and_then(|x| x.first())
@@ -312,6 +329,54 @@ fn mock(
             .map(Value::String)
             .unwrap_or(Value::Null),
         TypeExpr::Alias(_) => Value::Null,
+        TypeExpr::Record(name) => records
+            .get(name)
+            .map(|record| {
+                Value::Object(
+                    record
+                        .fields
+                        .iter()
+                        .map(|(field, ty)| {
+                            (
+                                field.clone(),
+                                mock(
+                                    ty,
+                                    &format!("{label}.{field}"),
+                                    args,
+                                    enums,
+                                    records,
+                                    unions,
+                                ),
+                            )
+                        })
+                        .collect(),
+                )
+            })
+            .unwrap_or(Value::Null),
+        TypeExpr::Union(name) => unions
+            .get(name)
+            .and_then(|union| union.variants.iter().next())
+            .map(|(variant, fields)| {
+                let mut object = serde_json::Map::from_iter([
+                    ("$type".into(), Value::String(name.clone())),
+                    ("$variant".into(), Value::String(variant.clone())),
+                ]);
+                object.extend(fields.iter().map(|(field, ty)| {
+                    (
+                        field.clone(),
+                        mock(
+                            ty,
+                            &format!("{label}.{field}"),
+                            args,
+                            enums,
+                            records,
+                            unions,
+                        ),
+                    )
+                }));
+                Value::Object(object)
+            })
+            .unwrap_or(Value::Null),
         TypeExpr::Obj(fs) => {
             let review = matches!(
                 (fs.get("approved"), fs.get("feedback")),
@@ -327,7 +392,7 @@ fn mock(
                             } else if review && k == "feedback" {
                                 Value::String("mock approved".into())
                             } else {
-                                mock(t, &format!("{label}.{k}"), args, enums)
+                                mock(t, &format!("{label}.{k}"), args, enums, records, unions)
                             },
                         )
                     })

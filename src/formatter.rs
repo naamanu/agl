@@ -38,6 +38,16 @@ fn statements(items: &[Stmt], indent: &str, lines: &mut Vec<String>) {
                 if run.retries > 0 {
                     line.push_str(&format!(" retries {}", run.retries));
                 }
+                if !run.retry_on.is_empty() {
+                    line.push_str(&format!(
+                        " retry_on [{}]",
+                        run.retry_on
+                            .iter()
+                            .map(|(type_name, variant)| format!("{type_name}::{variant}"))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ));
+                }
                 match &run.on_fail {
                     OnFail::Abort if run.retries > 0 => line.push_str(" on_fail abort"),
                     OnFail::Abort => {}
@@ -115,13 +125,34 @@ fn statements(items: &[Stmt], indent: &str, lines: &mut Vec<String>) {
             Stmt::TryCatch {
                 try_body,
                 error_var,
+                structured,
                 catch_body,
                 ..
             } => {
                 lines.push(format!("{indent}try {{"));
                 statements(try_body, &child, lines);
-                lines.push(format!("{indent}}} catch {error_var} {{"));
+                lines.push(format!(
+                    "{indent}}} catch {error_var}{} {{",
+                    if *structured { ": Failure" } else { "" }
+                ));
                 statements(catch_body, &child, lines);
+                lines.push(format!("{indent}}}"));
+            }
+            Stmt::Match { value, arms, .. } => {
+                lines.push(format!("{indent}match {} {{", format_expr(value)));
+                for arm in arms {
+                    let bindings = if arm.bindings.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" {{ {} }}", arm.bindings.join(", "))
+                    };
+                    lines.push(format!(
+                        "{child}{}::{}{bindings} => {{",
+                        arm.type_name, arm.variant
+                    ));
+                    statements(&arm.body, &format!("{child}  "), lines);
+                    lines.push(format!("{child}}}"));
+                }
                 lines.push(format!("{indent}}}"));
             }
             Stmt::Assert {
@@ -148,8 +179,12 @@ fn format_type(ty: &TypeExpr) -> String {
         TypeExpr::String => "String".into(),
         TypeExpr::Number => "Number".into(),
         TypeExpr::Bool => "Bool".into(),
+        TypeExpr::Failure => "Failure".into(),
         TypeExpr::List(item) => format!("List[{}]", format_type(item)),
         TypeExpr::Option(item) => format!("Option[{}]", format_type(item)),
+        TypeExpr::Result(ok, error) => {
+            format!("Result[{}, {}]", format_type(ok), format_type(error))
+        }
         TypeExpr::Obj(fields) => format!(
             "Obj{{{}}}",
             fields
@@ -158,7 +193,10 @@ fn format_type(ty: &TypeExpr) -> String {
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
-        TypeExpr::Enum(name) | TypeExpr::Alias(name) => name.clone(),
+        TypeExpr::Record(name)
+        | TypeExpr::Union(name)
+        | TypeExpr::Enum(name)
+        | TypeExpr::Alias(name) => name.clone(),
     }
 }
 
@@ -186,6 +224,37 @@ fn format_expr(expr: &Expr) -> String {
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
+        Expr::Record { name, fields, .. } => format!(
+            "{name} {{ {} }}",
+            fields
+                .iter()
+                .map(|(field, value)| format!("{field}: {}", format_expr(value)))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        Expr::Variant {
+            type_name,
+            variant,
+            fields,
+            ..
+        } => {
+            let fields = if fields.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    " {{ {} }}",
+                    fields
+                        .iter()
+                        .map(|(field, value)| format!("{field}: {}", format_expr(value)))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            };
+            format!("{type_name}::{variant}{fields}")
+        }
+        Expr::Result { ok, value, .. } => {
+            format!("{}({})", if *ok { "Ok" } else { "Err" }, format_expr(value))
+        }
         Expr::List { items, .. } => format!(
             "[{}]",
             items.iter().map(format_expr).collect::<Vec<_>>().join(", ")

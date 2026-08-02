@@ -1,0 +1,11 @@
+language "0.3";
+
+union Decision { Yes, No };
+
+pipeline main(decision: Decision) -> String {
+  match decision {
+    Decision::Yes => { return "yes"; }
+    Decision::Yes => { return "still yes"; }
+    Decision::No => { return "no"; }
+  }
+}

@@ -1,0 +1,7 @@
+language "0.3";
+
+record Person { name: String };
+
+pipeline main() -> Person {
+  return Person {name: "Nana", extra: "not declared"};
+}

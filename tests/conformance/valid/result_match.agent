@@ -1,0 +1,30 @@
+language "0.3";
+
+union Problem {
+  Invalid { reason: String },
+};
+
+pipeline unwrap(result: Result[String, Problem]) -> String {
+  match result {
+    Result::Ok { value } => {
+      return value;
+    },
+    Result::Err { error } => {
+      match error {
+        Problem::Invalid { reason } => {
+          return reason;
+        }
+      }
+    }
+  }
+}
+
+pipeline success() -> String {
+  let value = unwrap(Ok("done"));
+  return value;
+}
+
+pipeline failure() -> String {
+  let value = unwrap(Err(Problem::Invalid {reason: "invalid"}));
+  return value;
+}

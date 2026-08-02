@@ -1,10 +1,10 @@
 # Language Reference
 
-Complete syntax reference for AgentLang v0.
+Complete syntax reference for AGL 0.2 and 0.3.
 
 ## File structure
 
-An `.agent` file may begin with `language "0.2";`, then contains any number of `type` aliases, `enum` definitions, `agent`, `tool`, `task`, `pipeline`, `workflow`, and `test` declarations. When the version declaration is omitted, AGL 0.2 is assumed. Unsupported explicit versions are rejected rather than silently reinterpreted. Names must be unique across each declaration type.
+An `.agent` file may begin with `language "0.2";` or `language "0.3";`, then contains declarations. When the version declaration is omitted, the current language version is assumed. Unsupported explicit versions are rejected rather than silently reinterpreted. AGL 0.3 adds `record`, `union`, `Result`, and `match`; explicitly versioned 0.2 files cannot use them.
 
 ```agentlang
 language "0.2";
@@ -45,6 +45,37 @@ test "research returns notes" {
 }
 ```
 
+For new code using typed outcomes, start with `language "0.3";`. See the normative [AGL 0.2](https://github.com/naamanu/agl/blob/main/spec/agl-0.2.md) and [AGL 0.3](https://github.com/naamanu/agl/blob/main/spec/agl-0.3.md) specifications.
+
+## AGL 0.3 records, unions, and matching
+
+```agentlang
+language "0.3";
+
+record Article { title: String, body: String };
+union PublishError {
+  Rejected { reason: String },
+  Unavailable,
+};
+
+task publish(article: Article) -> Result[String, PublishError] {}
+
+pipeline publish_title(article: Article) -> String {
+  let outcome = publish(article);
+  match outcome {
+    Result::Ok { value } => { return value; }
+    Result::Err { error } => {
+      match error {
+        PublishError::Rejected { reason } => { return reason; }
+        PublishError::Unavailable => { return "unavailable"; }
+      }
+    }
+  }
+}
+```
+
+Record constructors provide every declared field. Union constructors use `Type::Variant` and carry declared fields. `match` must cover every variant exactly once. Pattern fields bind same-named variables within the selected arm.
+
 ## `type` alias declaration
 
 ```
@@ -73,7 +104,7 @@ enum Tone { formal, conversational, technical };
 enum Status { pending, approved, rejected };
 ```
 
-Constraints: enum names must be unique. Variant names must be unique within an enum.
+Constraints: enum names must be unique in the type namespace. Variant names are globally unique in 0.2/0.3 so string-literal inference is unambiguous.
 
 ## `agent` declaration
 
@@ -206,6 +237,7 @@ let <x> = run <task>
   with { <key>: <expr>, ... }
   [ by <agent> ]
   [ retries <N> ]
+  [ retry_on [<ErrorType>::<Variant>, ...] ]
   [ timeout <N> ]
   [ on_fail abort | on_fail use <expr> ]
   ;
@@ -215,6 +247,7 @@ let <x> = run <task>
 |---|---|---|
 | `by <agent>` | none | Agent binding for model + tool resolution |
 | `retries N` | `0` | Retry budget (N+1 total attempts) |
+| `retry_on [...]` | all host failures | Retry only the listed typed `Err` variants; requires `Result[T, E]` and `retries N` |
 | `timeout N` | none | Deadline in seconds; handler is abandoned if exceeded |
 | `on_fail abort` | default | Raise error on exhaustion |
 | `on_fail use <expr>` | — | Use fallback value on exhaustion |
@@ -308,6 +341,19 @@ try {
   <statements>
 }
 ```
+
+AGL 0.3 can bind a structured execution failure instead of a legacy message string:
+
+```agentlang
+try {
+  let result = risky_task(input);
+  return result;
+} catch failure: Failure {
+  return failure.kind + ": " + failure.message;
+}
+```
+
+`Failure` exposes `kind`, `message`, `operation: Option[String]`, and `retryable`. Typed `Result::Err` values are ordinary domain outcomes and are not caught.
 
 If any statement in the `try` block raises a runtime error, execution jumps to the `catch` block. The `<error_var>` is bound as a `String` containing the error message. Variables bound inside `try` that were also bound before `try` are available after the block (the catch block may re-bind them).
 

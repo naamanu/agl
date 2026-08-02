@@ -40,7 +40,7 @@ This phase prevents the implementation, documentation, and paper from becoming c
 - [x] Add valid and invalid fixture directories with machine-readable expectations.
 - [x] Add a conformance runner that checks parsing, diagnostics, lowering, and execution.
 - [x] Add stable phase diagnostic codes.
-- [ ] Add golden source rendering as part of AGL 0.3 diagnostics.
+- [x] Add golden source rendering as part of AGL 0.3 diagnostics.
 - [x] Define a language-version mechanism and unsupported-version diagnostic.
 - [x] Update the paper with a clear historical-versus-current specification boundary.
 
@@ -55,33 +55,34 @@ Acceptance criteria:
 
 ### Named data types
 
-- [ ] Add nominal `record` declarations while retaining structural `Obj` values.
-- [ ] Define construction, field access, assignability, and serialization for records.
-- [ ] Preserve aliases as transparent names and document the distinction from records.
-- [ ] Add duplicate-field, recursive-type, and visibility diagnostics.
+- [x] Add nominal `record` declarations while retaining structural `Obj` values.
+- [x] Define construction, field access, assignability, and serialization for records.
+- [x] Preserve aliases as transparent names and document the distinction from records.
+- [x] Add duplicate-field, recursive-type, and visibility diagnostics.
 
 ### Tagged unions and matching
 
-- [ ] Add tagged `union` declarations with unit and record variants.
-- [ ] Add constructors for union variants.
-- [ ] Add `match` expressions or statements with bindings.
-- [ ] Check exhaustiveness and unreachable cases.
-- [ ] Specify JSON encoding for records and unions.
+- [x] Add tagged `union` declarations with unit and record variants.
+- [x] Add constructors for union variants.
+- [x] Add `match` statements with bindings.
+- [x] Check exhaustiveness and unreachable cases.
+- [x] Specify JSON encoding for records and unions.
 
 ### Structured outcomes and errors
 
-- [ ] Add built-in `Result[T, E]` alongside `Option[T]`.
-- [ ] Represent task, tool, adapter, timeout, cancellation, and budget failures as structured values.
-- [ ] Add propagation syntax only if it remains clearer than explicit `match`.
-- [ ] Retain `try/catch` as a boundary for unexpected execution faults, not ordinary typed failures.
-- [ ] Make retry selection operate on typed error variants.
+- [x] Add built-in `Result[T, E]` alongside `Option[T]`.
+- [x] Represent current task, timeout, assertion, and runtime faults through structured `Failure` catches.
+- [ ] Add tool/adapter-specific, cancellation, and budget failure categories as those runtime layers gain typed failure propagation.
+- [x] Keep explicit `match`; 0.3 deliberately omits implicit propagation syntax.
+- [x] Retain `try/catch` as a boundary for unexpected execution faults, not ordinary typed failures.
+- [x] Make retry selection operate on typed error variants.
 
 ### Diagnostics and developer experience
 
-- [ ] Give lexer, parser, resolver, checker, and runtime errors stable codes.
-- [ ] Render filename, source span, offending line, caret, and concise remediation.
-- [ ] Detect unreachable statements and unused bindings.
-- [ ] Provide typo suggestions for declarations, fields, and enum/union variants.
+- [x] Give lexer, parser, resolver, checker, and runtime errors stable codes.
+- [x] Render filename, source span, offending line, caret, and concise remediation.
+- [x] Detect unreachable statements and unused bindings.
+- [x] Provide typo suggestions for declarations, fields, and enum/union variants.
 
 Acceptance criteria:
 

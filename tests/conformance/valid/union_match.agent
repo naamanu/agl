@@ -1,0 +1,22 @@
+language "0.3";
+
+union FetchError {
+  Network { message: String },
+  Cancelled,
+};
+
+pipeline describe(error: FetchError) -> String {
+  match error {
+    FetchError::Network { message } => {
+      return message;
+    },
+    FetchError::Cancelled => {
+      return "cancelled";
+    }
+  }
+}
+
+pipeline main() -> String {
+  let description = describe(FetchError::Network {message: "offline"});
+  return description;
+}

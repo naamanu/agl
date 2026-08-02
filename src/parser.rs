@@ -17,7 +17,7 @@ pub enum ParseError {
     #[error("[AGL1002] {0}")]
     Semantic(String),
     #[error(
-        "[AGL1003] unsupported language version {version:?} at {line}:{col}; supported version is {supported:?}"
+        "[AGL1003] unsupported language version {version:?} at {line}:{col}; supported versions are {supported}"
     )]
     UnsupportedVersion {
         version: String,
@@ -172,6 +172,8 @@ impl Parser {
                     self.workflows.push(workflow);
                 }
                 "type" => self.alias()?,
+                "record" => self.record_def()?,
+                "union" => self.union_def()?,
                 "enum" => self.enum_def()?,
                 "test" => self.test_block()?,
                 _ => {
@@ -187,10 +189,10 @@ impl Parser {
         let span = self.expect("language")?.span;
         let version = self.string()?.text;
         self.expect(";")?;
-        if version != CURRENT_LANGUAGE_VERSION {
+        if !SUPPORTED_LANGUAGE_VERSIONS.contains(&version.as_str()) {
             return Err(ParseError::UnsupportedVersion {
                 version,
-                supported: CURRENT_LANGUAGE_VERSION,
+                supported: "0.2, 0.3",
                 line: span.line,
                 col: span.col,
             });
@@ -201,6 +203,7 @@ impl Parser {
     fn alias(&mut self) -> Result<(), ParseError> {
         self.expect("type")?;
         let n = self.ident()?.text;
+        self.ensure_type_name_available(&n)?;
         self.expect("=")?;
         let ty = self.ty()?;
         self.expect(";")?;
@@ -212,6 +215,7 @@ impl Parser {
     fn enum_def(&mut self) -> Result<(), ParseError> {
         self.expect("enum")?;
         let n = self.ident()?.text;
+        self.ensure_type_name_available(&n)?;
         self.expect("{")?;
         let mut xs = Vec::new();
         let mut seen = BTreeSet::new();
@@ -220,6 +224,16 @@ impl Parser {
             if !seen.insert(x.clone()) {
                 return Err(ParseError::Semantic(format!(
                     "duplicate enum variant '{x}' in enum '{n}'"
+                )));
+            }
+            if self
+                .program
+                .enums
+                .values()
+                .any(|variants| variants.contains(&x))
+            {
+                return Err(ParseError::Semantic(format!(
+                    "enum variant '{x}' is already declared by another enum"
                 )));
             }
             xs.push(x);
@@ -233,6 +247,122 @@ impl Parser {
             return Err(ParseError::Semantic(format!("duplicate enum: {n}")));
         }
         Ok(())
+    }
+    fn record_def(&mut self) -> Result<(), ParseError> {
+        if self.program.language_version == "0.2" {
+            return Err(ParseError::Semantic(
+                "record declarations require language \"0.3\"".into(),
+            ));
+        }
+        self.expect("record")?;
+        let name = self.ident()?.text;
+        self.ensure_type_name_available(&name)?;
+        self.expect("{")?;
+        let mut fields = BTreeMap::new();
+        while !self.at("}") {
+            let field = self.ident()?.text;
+            self.expect(":")?;
+            let ty = self.ty()?;
+            if fields.insert(field.clone(), ty).is_some() {
+                return Err(ParseError::Semantic(format!(
+                    "duplicate field '{field}' in record '{name}'"
+                )));
+            }
+            if !self.take(",") {
+                break;
+            }
+        }
+        self.expect("}")?;
+        self.expect(";")?;
+        let definition = RecordDef {
+            name: name.clone(),
+            fields,
+        };
+        if self
+            .program
+            .records
+            .insert(name.clone(), definition)
+            .is_some()
+        {
+            return Err(ParseError::Semantic(format!("duplicate record: {name}")));
+        }
+        Ok(())
+    }
+    fn union_def(&mut self) -> Result<(), ParseError> {
+        if self.program.language_version == "0.2" {
+            return Err(ParseError::Semantic(
+                "union declarations require language \"0.3\"".into(),
+            ));
+        }
+        self.expect("union")?;
+        let name = self.ident()?.text;
+        self.ensure_type_name_available(&name)?;
+        self.expect("{")?;
+        let mut variants = BTreeMap::new();
+        while !self.at("}") {
+            let variant = self.ident()?.text;
+            let mut fields = BTreeMap::new();
+            if self.take("{") {
+                while !self.at("}") {
+                    let field = self.ident()?.text;
+                    self.expect(":")?;
+                    let ty = self.ty()?;
+                    if fields.insert(field.clone(), ty).is_some() {
+                        return Err(ParseError::Semantic(format!(
+                            "duplicate field '{field}' in variant '{name}::{variant}'"
+                        )));
+                    }
+                    if !self.take(",") {
+                        break;
+                    }
+                }
+                self.expect("}")?;
+            }
+            if variants.insert(variant.clone(), fields).is_some() {
+                return Err(ParseError::Semantic(format!(
+                    "duplicate variant '{variant}' in union '{name}'"
+                )));
+            }
+            if !self.take(",") {
+                break;
+            }
+        }
+        self.expect("}")?;
+        self.expect(";")?;
+        if variants.is_empty() {
+            return Err(ParseError::Semantic(format!(
+                "union '{name}' must declare at least one variant"
+            )));
+        }
+        let definition = UnionDef {
+            name: name.clone(),
+            variants,
+        };
+        if self
+            .program
+            .unions
+            .insert(name.clone(), definition)
+            .is_some()
+        {
+            return Err(ParseError::Semantic(format!("duplicate union: {name}")));
+        }
+        Ok(())
+    }
+    fn ensure_type_name_available(&self, name: &str) -> Result<(), ParseError> {
+        if matches!(
+            name,
+            "String" | "Number" | "Bool" | "Failure" | "List" | "Option" | "Obj" | "Result"
+        ) || self.program.aliases.contains_key(name)
+            || self.program.enums.contains_key(name)
+            || self.program.records.contains_key(name)
+            || self.program.unions.contains_key(name)
+        {
+            Err(ParseError::Semantic(format!(
+                "duplicate type declaration: {name}"
+            )))
+        } else {
+            Ok(())
+        }
     }
     fn agent(&mut self) -> Result<AgentDef, ParseError> {
         self.expect("agent")?;
@@ -437,6 +567,15 @@ impl Parser {
             "String" => Ok(TypeExpr::String),
             "Number" => Ok(TypeExpr::Number),
             "Bool" => Ok(TypeExpr::Bool),
+            "Failure" => {
+                if self.program.language_version == "0.2" {
+                    Err(ParseError::Semantic(
+                        "Failure requires language \"0.3\"".into(),
+                    ))
+                } else {
+                    Ok(TypeExpr::Failure)
+                }
+            }
             "List" | "Option" => {
                 self.expect("[")?;
                 let inner = self.ty()?;
@@ -446,6 +585,19 @@ impl Parser {
                 } else {
                     TypeExpr::Option(Box::new(inner))
                 })
+            }
+            "Result" => {
+                if self.program.language_version == "0.2" {
+                    return Err(ParseError::Semantic(
+                        "Result requires language \"0.3\"".into(),
+                    ));
+                }
+                self.expect("[")?;
+                let ok = self.ty()?;
+                self.expect(",")?;
+                let error = self.ty()?;
+                self.expect("]")?;
+                Ok(TypeExpr::Result(Box::new(ok), Box::new(error)))
             }
             "Obj" => {
                 self.expect("{")?;
@@ -467,6 +619,8 @@ impl Parser {
                 Ok(TypeExpr::Obj(fs))
             }
             _ if self.program.enums.contains_key(&t) => Ok(TypeExpr::Enum(t)),
+            _ if self.program.records.contains_key(&t) => Ok(TypeExpr::Record(t)),
+            _ if self.program.unions.contains_key(&t) => Ok(TypeExpr::Union(t)),
             _ if self.program.aliases.contains_key(&t) => Ok(TypeExpr::Alias(t)),
             _ => Err(ParseError::Semantic(format!(
                 "unknown type '{t}' (types must be declared before use)"
@@ -562,13 +716,71 @@ impl Parser {
                 let try_body = self.block()?;
                 self.expect("catch")?;
                 let error_var = self.ident()?.text;
+                let structured = if self.take(":") {
+                    self.expect("Failure")?;
+                    if self.program.language_version == "0.2" {
+                        return Err(ParseError::Semantic(
+                            "structured catch requires language \"0.3\"".into(),
+                        ));
+                    }
+                    true
+                } else {
+                    false
+                };
                 let catch_body = self.block()?;
                 Ok(Stmt::TryCatch {
                     try_body,
                     error_var,
+                    structured,
                     catch_body,
                     span,
                 })
+            }
+            "match" => {
+                if self.program.language_version == "0.2" {
+                    return Err(ParseError::Semantic(
+                        "match requires language \"0.3\"".into(),
+                    ));
+                }
+                self.bump();
+                let value = self.expr()?;
+                self.expect("{")?;
+                let mut arms = Vec::new();
+                while !self.at("}") {
+                    let arm_span = self.cur().span;
+                    let type_name = self.ident()?.text;
+                    self.expect("::")?;
+                    let variant = self.ident()?.text;
+                    let mut bindings = Vec::new();
+                    let mut seen_bindings = BTreeSet::new();
+                    if self.take("{") {
+                        while !self.at("}") {
+                            let binding = self.ident()?.text;
+                            if !seen_bindings.insert(binding.clone()) {
+                                return Err(ParseError::Semantic(format!(
+                                    "duplicate match binding '{binding}'"
+                                )));
+                            }
+                            bindings.push(binding);
+                            if !self.take(",") {
+                                break;
+                            }
+                        }
+                        self.expect("}")?;
+                    }
+                    self.expect("=>")?;
+                    let body = self.block()?;
+                    arms.push(MatchArm {
+                        type_name,
+                        variant,
+                        bindings,
+                        body,
+                        span: arm_span,
+                    });
+                    self.take(",");
+                }
+                self.expect("}")?;
+                Ok(Stmt::Match { value, arms, span })
             }
             "assert" => {
                 self.bump();
@@ -621,10 +833,14 @@ impl Parser {
             }
         }
         let (mut agent, mut retries, mut on_fail, mut timeout) = (None, 0, OnFail::Abort, None);
+        let mut retry_on = Vec::new();
         let mut seen = BTreeSet::new();
         loop {
             let clause = self.cur().text.clone();
-            if !matches!(clause.as_str(), "by" | "retries" | "on_fail" | "timeout") {
+            if !matches!(
+                clause.as_str(),
+                "by" | "retries" | "retry_on" | "on_fail" | "timeout"
+            ) {
                 break;
             }
             if !seen.insert(clause.clone()) {
@@ -636,6 +852,24 @@ impl Parser {
             match clause.as_str() {
                 "by" => agent = Some(self.ident()?.text),
                 "retries" => retries = self.integer("retries")?,
+                "retry_on" => {
+                    if self.program.language_version == "0.2" {
+                        return Err(ParseError::Semantic(
+                            "retry_on requires language \"0.3\"".into(),
+                        ));
+                    }
+                    self.expect("[")?;
+                    while !self.at("]") {
+                        let type_name = self.ident()?.text;
+                        self.expect("::")?;
+                        let variant = self.ident()?.text;
+                        retry_on.push((type_name, variant));
+                        if !self.take(",") {
+                            break;
+                        }
+                    }
+                    self.expect("]")?;
+                }
                 "on_fail" => {
                     if self.take("abort") {
                         on_fail = OnFail::Abort
@@ -660,6 +894,7 @@ impl Parser {
             args,
             agent,
             retries,
+            retry_on,
             on_fail,
             timeout,
             span,
@@ -818,6 +1053,92 @@ impl Parser {
                         span: t.span,
                     })
                 }
+                _ if t.kind == Kind::Id
+                    && self
+                        .tokens
+                        .get(self.pos + 1)
+                        .is_some_and(|next| next.text == "::")
+                    && self.program.unions.contains_key(&t.text) =>
+                {
+                    let type_name = self.bump().text;
+                    self.expect("::")?;
+                    let variant = self.ident()?.text;
+                    let mut fields = BTreeMap::new();
+                    if self.take("{") {
+                        while !self.at("}") {
+                            let field = self.ident()?.text;
+                            self.expect(":")?;
+                            let value = self.expr()?;
+                            if fields.insert(field.clone(), value).is_some() {
+                                return Err(ParseError::Semantic(format!(
+                                    "duplicate field '{field}' in '{type_name}::{variant}' constructor"
+                                )));
+                            }
+                            if !self.take(",") {
+                                break;
+                            }
+                        }
+                        self.expect("}")?;
+                    }
+                    Ok(Expr::Variant {
+                        type_name,
+                        variant,
+                        fields,
+                        span: t.span,
+                    })
+                }
+                _ if t.kind == Kind::Id
+                    && matches!(t.text.as_str(), "Ok" | "Err")
+                    && self
+                        .tokens
+                        .get(self.pos + 1)
+                        .is_some_and(|next| next.text == "(") =>
+                {
+                    if self.program.language_version == "0.2" {
+                        return Err(ParseError::Semantic(
+                            "Result constructors require language \"0.3\"".into(),
+                        ));
+                    }
+                    let ok = self.bump().text == "Ok";
+                    self.expect("(")?;
+                    let value = self.expr()?;
+                    self.expect(")")?;
+                    Ok(Expr::Result {
+                        ok,
+                        value: Box::new(value),
+                        span: t.span,
+                    })
+                }
+                _ if t.kind == Kind::Id
+                    && self
+                        .tokens
+                        .get(self.pos + 1)
+                        .is_some_and(|next| next.text == "{")
+                    && self.program.records.contains_key(&t.text) =>
+                {
+                    let name = self.bump().text;
+                    self.expect("{")?;
+                    let mut fields = BTreeMap::new();
+                    while !self.at("}") {
+                        let field = self.ident()?.text;
+                        self.expect(":")?;
+                        let value = self.expr()?;
+                        if fields.insert(field.clone(), value).is_some() {
+                            return Err(ParseError::Semantic(format!(
+                                "duplicate field '{field}' in '{name}' constructor"
+                            )));
+                        }
+                        if !self.take(",") {
+                            break;
+                        }
+                    }
+                    self.expect("}")?;
+                    Ok(Expr::Record {
+                        name,
+                        fields,
+                        span: t.span,
+                    })
+                }
                 _ if t.kind == Kind::Id => {
                     let mut parts = vec![self.bump().text];
                     while self.take(".") {
@@ -932,6 +1253,7 @@ impl Parser {
                             args: named,
                             agent: Some(agent),
                             retries: 0,
+                            retry_on: Vec::new(),
                             on_fail: OnFail::Abort,
                             timeout: None,
                             span,
@@ -966,6 +1288,7 @@ impl Parser {
                         })?;
                         let fields = match &source_type {
                             TypeExpr::Obj(fields) => fields,
+                            TypeExpr::Record(name) => &self.program.records[name].fields,
                             _ => {
                                 return Err(ParseError::Semantic(format!(
                                     "workflow '{}' can only review object-shaped artifacts",
@@ -1011,6 +1334,7 @@ impl Parser {
                             args: review_args,
                             agent: Some(reviewer.clone()),
                             retries: 0,
+                            retry_on: Vec::new(),
                             on_fail: OnFail::Abort,
                             timeout: None,
                             span,
@@ -1027,6 +1351,7 @@ impl Parser {
                             )]),
                             agent: None,
                             retries: 0,
+                            retry_on: Vec::new(),
                             on_fail: OnFail::Abort,
                             timeout: None,
                             span,
@@ -1083,6 +1408,7 @@ impl Parser {
                                 args: revise_args,
                                 agent: Some(reviser),
                                 retries: 0,
+                                retry_on: Vec::new(),
                                 on_fail: OnFail::Abort,
                                 timeout: None,
                                 span,
@@ -1093,6 +1419,7 @@ impl Parser {
                                 args: repeated_review_args,
                                 agent: Some(reviewer),
                                 retries: 0,
+                                retry_on: Vec::new(),
                                 on_fail: OnFail::Abort,
                                 timeout: None,
                                 span,
@@ -1109,6 +1436,7 @@ impl Parser {
                                 )]),
                                 agent: None,
                                 retries: 0,
+                                retry_on: Vec::new(),
                                 on_fail: OnFail::Abort,
                                 timeout: None,
                                 span,

@@ -404,3 +404,52 @@ The parallel join is deterministic in its *result set* but not in *execution ord
 The runtime additionally enforces that task handler outputs and final pipeline return values conform to their declared DSL types; malformed runtime values are execution errors even if the surrounding program parsed and type-checked successfully.
 
 Declared tools are also validated dynamically: tool call arguments and tool results must conform to their DSL signatures.
+
+---
+
+## 5. AGL 0.3 nominal and sum types
+
+AGL 0.3 extends the type grammar with nominal records, closed unions, and results:
+
+$$\tau ::= \cdots \mid \texttt{Record}[R] \mid \texttt{Union}[U] \mid \texttt{Result}[\tau_o,\tau_e]$$
+
+A record environment $\mathcal{R}$ maps each record name to its field row, and a union environment $\mathcal{U}$ maps each union name and variant to a field row.
+
+**Record construction:**
+
+$$\dfrac{\mathcal{R}(R)=\{f_i{:}\tau_i\}\quad \forall i.\ \Gamma\vdash e_i:\tau_i}{\Gamma\vdash R\{f_i:e_i\}:\texttt{Record}[R]}$$
+
+The provided field domain must equal the declared field domain. `Record[R]` is assignable only to itself (including through transparent aliases); equal field structure does not make two record names interchangeable.
+
+**Union construction:**
+
+$$\dfrac{\mathcal{U}(U,V)=\{f_i{:}\tau_i\}\quad \forall i.\ \Gamma\vdash e_i:\tau_i}{\Gamma\vdash U::V\{f_i:e_i\}:\texttt{Union}[U]}$$
+
+**Result construction:**
+
+$$\dfrac{\Gamma\vdash e:\tau}{\Gamma\vdash \texttt{Ok}(e):\texttt{Result}[\tau,\alpha]}\qquad
+\dfrac{\Gamma\vdash e:\epsilon}{\Gamma\vdash \texttt{Err}(e):\texttt{Result}[\alpha,\epsilon]}$$
+
+Here $\alpha$ is a contextual inference placeholder assignable to the corresponding expected result component. It cannot be named in source or escape a checked use site.
+
+### Exhaustive match typing
+
+For a union $U$ with variants $V_1\ldots V_n$, a match is well typed only when its arm set is exactly that variant set:
+
+$$\dfrac{
+\Gamma\vdash e:\texttt{Union}[U]\quad
+\{V_j\}=\text{variants}(U)\quad
+\forall j.\ \Gamma,\mathcal{U}(U,V_j)\vdash s_j^*\dashv\Gamma_j
+}{
+\Gamma\vdash \texttt{match}\ e\ \{U::V_j\Rightarrow s_j^*\}_{j=1}^{n}\dashv\bigcap_j\Gamma_j
+}$$
+
+Pattern field bindings are added only while checking their arm, then removed or restored before computing the post-match environment. The same rule applies to the synthetic `Result::Ok { value }` and `Result::Err { error }` variants.
+
+At runtime, evaluation selects the unique arm whose `$type` and `$variant` tags equal the scrutinee tags, binds its payload fields, and executes that body. Exhaustiveness guarantees that every statically valid tagged value has an arm.
+
+Typed `Err` values are ordinary results. They do not take an execution-error transition and are therefore not intercepted by `try/catch`.
+
+### Total return paths
+
+AGL 0.3 strengthens pipeline well-typedness: every reachable continuation must terminate in a compatible `return`. A conditional is terminating only when both branches terminate; an exhaustive match is terminating only when all arms terminate; loops are conservatively non-terminating for this analysis because their body may execute zero times.

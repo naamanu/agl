@@ -1,3 +1,4 @@
+use agl::deployment::{DeploymentConfig, DeploymentError};
 use agl::{check_program, format_pipeline, infer_program_effects, parse_program};
 use std::collections::BTreeSet;
 
@@ -70,4 +71,50 @@ fn external_writes_require_retry_safe_idempotency() {
     let safe_source = unsafe_source.replace("non_idempotent", "keyed_by id");
     let program = parse_program(&safe_source).unwrap();
     check_program(&program).unwrap();
+}
+
+#[test]
+fn deployment_bindings_validate_agent_requirements() {
+    let source = r#"
+        language "0.4";
+        agent researcher {
+          tools: [],
+          requires: [reasoning, tool_calling],
+          min_context: 100000,
+          max_latency_ms: 5000,
+          quality: "high"
+        }
+    "#;
+    let mut program = parse_program(source).unwrap();
+    check_program(&program).unwrap();
+    let config = DeploymentConfig::from_json(
+        r#"{
+          "agents": {
+            "researcher": {
+              "provider": "openai",
+              "model": "production-model",
+              "reasoning_effort": "medium",
+              "capabilities": ["reasoning", "tool_calling"],
+              "context_window": 200000,
+              "expected_latency_ms": 3000,
+              "quality": "frontier"
+            }
+          }
+        }"#,
+    )
+    .unwrap();
+    config.apply(&mut program, Some("openai")).unwrap();
+    let binding = program.agents["researcher"].deployment.as_ref().unwrap();
+    assert_eq!(binding.model, "production-model");
+    assert_eq!(binding.reasoning_effort.as_deref(), Some("medium"));
+
+    let mut program = parse_program(source).unwrap();
+    let missing = DeploymentConfig::from_json(
+        r#"{"agents":{"researcher":{"provider":"openai","model":"small","capabilities":[]}}}"#,
+    )
+    .unwrap();
+    assert!(matches!(
+        missing.apply(&mut program, Some("openai")),
+        Err(DeploymentError::Capabilities { .. })
+    ));
 }

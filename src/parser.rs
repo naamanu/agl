@@ -369,6 +369,10 @@ impl Parser {
         let name = self.ident()?.text;
         self.expect("{")?;
         let (mut model, mut tools) = (None, None);
+        let mut capabilities = None;
+        let mut min_context = None;
+        let mut max_latency_ms = None;
+        let mut quality = None;
         while !self.at("}") {
             if self.take(",") {
                 continue;
@@ -402,6 +406,67 @@ impl Parser {
                     self.expect("]")?;
                     tools = Some(x)
                 }
+                "requires" => {
+                    self.require_04("agent requirements")?;
+                    self.bump();
+                    self.expect(":")?;
+                    if capabilities.is_some() {
+                        return Err(ParseError::Semantic(
+                            "duplicate 'requires' in agent definition".into(),
+                        ));
+                    }
+                    self.expect("[")?;
+                    let mut values = BTreeSet::new();
+                    while !self.at("]") {
+                        let capability = self.ident()?.text;
+                        if !values.insert(capability.clone()) {
+                            return Err(ParseError::Semantic(format!(
+                                "duplicate agent capability '{capability}'"
+                            )));
+                        }
+                        if !self.take(",") {
+                            break;
+                        }
+                    }
+                    self.expect("]")?;
+                    capabilities = Some(values);
+                }
+                "min_context" => {
+                    self.require_04("agent requirements")?;
+                    self.bump();
+                    self.expect(":")?;
+                    if min_context
+                        .replace(self.integer("min_context")? as u64)
+                        .is_some()
+                    {
+                        return Err(ParseError::Semantic(
+                            "duplicate 'min_context' in agent definition".into(),
+                        ));
+                    }
+                }
+                "max_latency_ms" => {
+                    self.require_04("agent requirements")?;
+                    self.bump();
+                    self.expect(":")?;
+                    if max_latency_ms
+                        .replace(self.integer("max_latency_ms")? as u64)
+                        .is_some()
+                    {
+                        return Err(ParseError::Semantic(
+                            "duplicate 'max_latency_ms' in agent definition".into(),
+                        ));
+                    }
+                }
+                "quality" => {
+                    self.require_04("agent requirements")?;
+                    self.bump();
+                    self.expect(":")?;
+                    if quality.replace(self.string()?.text).is_some() {
+                        return Err(ParseError::Semantic(
+                            "duplicate 'quality' in agent definition".into(),
+                        ));
+                    }
+                }
                 _ => return Err(self.error("unexpected token in agent body".into())),
             }
         }
@@ -412,6 +477,13 @@ impl Parser {
             tools: tools.ok_or_else(|| {
                 ParseError::Semantic(format!("agent '{name}' must declare tools"))
             })?,
+            requirements: AgentRequirements {
+                capabilities: capabilities.unwrap_or_default(),
+                min_context,
+                max_latency_ms,
+                quality,
+            },
+            deployment: None,
         })
     }
     fn task(&mut self) -> Result<TaskDef, ParseError> {
@@ -507,11 +579,7 @@ impl Parser {
     }
 
     fn effect_set(&mut self) -> Result<BTreeSet<String>, ParseError> {
-        if self.program.language_version != "0.4" {
-            return Err(ParseError::Semantic(
-                "effect declarations require language \"0.4\"".into(),
-            ));
-        }
+        self.require_04("effect declarations")?;
         self.expect("effects")?;
         self.expect("[")?;
         let mut effects = BTreeSet::new();
@@ -533,11 +601,7 @@ impl Parser {
     }
 
     fn idempotency(&mut self) -> Result<Idempotency, ParseError> {
-        if self.program.language_version != "0.4" {
-            return Err(ParseError::Semantic(
-                "idempotency declarations require language \"0.4\"".into(),
-            ));
-        }
+        self.require_04("idempotency declarations")?;
         self.expect("idempotency")?;
         if self.take("pure") {
             Ok(Idempotency::Pure)
@@ -548,6 +612,16 @@ impl Parser {
         } else {
             self.expect("keyed_by")?;
             Ok(Idempotency::KeyedBy(self.ident()?.text))
+        }
+    }
+
+    fn require_04(&self, feature: &str) -> Result<(), ParseError> {
+        if self.program.language_version == "0.4" {
+            Ok(())
+        } else {
+            Err(ParseError::Semantic(format!(
+                "{feature} require language \"0.4\""
+            )))
         }
     }
     fn workflow(&mut self) -> Result<Workflow, ParseError> {

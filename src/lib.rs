@@ -7,6 +7,7 @@ pub mod adapters;
 pub mod ast;
 pub mod checker;
 pub mod context;
+pub mod deployment;
 pub mod diagnostic;
 pub mod formatter;
 pub mod lexer;

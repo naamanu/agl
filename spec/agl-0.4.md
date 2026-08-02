@@ -53,6 +53,26 @@ The checker rejects retries of `non_idempotent` tasks. A task with `external_wri
 
 These checks are static promises: hosts must implement the declared idempotency behavior. Future stable extension contracts carry the resolved key to handlers and adapters.
 
-## 3. Compatibility
+## 3. Agent requirements and deployment
+
+An agent may declare provider-neutral requirements:
+
+```agl
+agent researcher {
+  tools: [search],
+  requires: [reasoning, tool_calling],
+  min_context: 100000,
+  max_latency_ms: 5000,
+  quality: "high"
+}
+```
+
+`requires` is an application-defined capability set. The remaining constraints are optional. Quality tiers are ordered `low < medium < high < frontier`.
+
+Provider, model, endpoint, reasoning effort, supplied capabilities, context window, expected latency, and quality live in an external deployment binding. When a deployment is applied, every source agent must have exactly one known binding. The binding must match the selected provider and satisfy every source constraint before execution.
+
+The source `model` field remains an explicit compatibility escape hatch when no deployment is supplied. Deployment model and reasoning settings take precedence over environment and source defaults. A deployment contains configuration, never API credentials.
+
+## 4. Compatibility
 
 Effect and idempotency clauses require `language "0.4";`. Existing 0.2 and 0.3 declarations retain their unspecified contracts. Pipelines without explicit effect ceilings continue to compile through inference.

@@ -24,6 +24,7 @@ cargo run -- <source> <pipeline> [options]
 | `--adapter mock\|live\|anthropic` | `mock` | Task execution mode |
 | `--lower` | off | Print the lowered pipeline IR for the selected pipeline or workflow and exit |
 | `--effects` | off | Print inferred transitive pipeline effects as JSON and exit |
+| `--deployment PATH` | off | Validate and apply provider-neutral agent bindings from JSON |
 | `--trace-live` | off | Emit live model/tool tracing to `stderr` when running with `--adapter live` or `--adapter anthropic` |
 | `--output-trace PATH` | off | Write a structured JSON execution trace to `PATH` after execution |
 | `--plugin MODULE` | — | Load a plugin module (Python file path or dotted module name). May be repeated. |

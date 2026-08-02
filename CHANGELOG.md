@@ -4,6 +4,7 @@
 
 - Added transitive effect inference and declared pipeline effect ceilings.
 - Added task/tool idempotency contracts and static retry-safety enforcement.
+- Added provider-neutral agent requirements and validated JSON deployment bindings.
 
 ## 0.3.0 — 2026-08-02
 

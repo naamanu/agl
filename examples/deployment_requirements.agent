@@ -1,0 +1,16 @@
+language "0.4";
+
+agent researcher {
+  tools: [],
+  requires: [reasoning, tool_calling],
+  min_context: 100000,
+  max_latency_ms: 5000,
+  quality: "high"
+}
+
+task investigate(topic: String) -> Obj{answer: String} by agent {}
+
+pipeline answer(topic: String) -> String effects [model] {
+  let result = investigate(topic) by researcher;
+  return result.answer;
+}

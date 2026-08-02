@@ -196,6 +196,34 @@ pub struct AgentDef {
     pub name: String,
     pub model: Option<String>,
     pub tools: Vec<String>,
+    pub requirements: AgentRequirements,
+    pub deployment: Option<AgentDeployment>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentRequirements {
+    pub capabilities: BTreeSet<String>,
+    pub min_context: Option<u64>,
+    pub max_latency_ms: Option<u64>,
+    pub quality: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentDeployment {
+    pub provider: String,
+    pub model: String,
+    #[serde(default)]
+    pub endpoint: Option<String>,
+    #[serde(default)]
+    pub reasoning_effort: Option<String>,
+    #[serde(default)]
+    pub capabilities: BTreeSet<String>,
+    #[serde(default)]
+    pub context_window: Option<u64>,
+    #[serde(default)]
+    pub expected_latency_ms: Option<u64>,
+    #[serde(default)]
+    pub quality: Option<String>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TaskDef {

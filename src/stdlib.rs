@@ -1,8 +1,73 @@
-use crate::ast::{Program, TypeExpr};
+use crate::adapters::tools::{ToolRegistry, default_tool_registry, tool_definitions, type_schema};
+use crate::adapters::{AnthropicClient, CompletionRequest, ModelClient, OpenAiClient};
+use crate::ast::{Program, TaskDef, TypeExpr};
 use crate::runtime::Registry;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AdapterMode {
+    Mock,
+    OpenAi,
+    Anthropic,
+}
+
+impl std::str::FromStr for AdapterMode {
+    type Err = String;
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "mock" => Ok(Self::Mock),
+            "live" | "openai" => Ok(Self::OpenAi),
+            "anthropic" => Ok(Self::Anthropic),
+            _ => Err(format!("unknown adapter mode '{value}'")),
+        }
+    }
+}
+
+pub fn registry_for(
+    program: &Program,
+    mode: AdapterMode,
+    trace_live: bool,
+) -> Result<Registry, String> {
+    let mut registry = default_registry(program);
+    if mode == AdapterMode::Mock {
+        return Ok(registry);
+    }
+    let client: Arc<dyn ModelClient> = match mode {
+        AdapterMode::OpenAi => {
+            let key = std::env::var("OPENAI_API_KEY")
+                .map_err(|_| "OPENAI_API_KEY is required for --adapter openai".to_string())?;
+            Arc::new(OpenAiClient::new(key).map_err(|e| e.to_string())?)
+        }
+        AdapterMode::Anthropic => {
+            let key = std::env::var("ANTHROPIC_API_KEY")
+                .map_err(|_| "ANTHROPIC_API_KEY is required for --adapter anthropic".to_string())?;
+            Arc::new(AnthropicClient::new(key).map_err(|e| e.to_string())?)
+        }
+        AdapterMode::Mock => unreachable!(),
+    };
+    let tools =
+        Arc::new(default_tool_registry(Duration::from_secs(15)).map_err(|e| e.to_string())?);
+    let live_names = ["research", "draft", "compare", "respond", "llm_complete"];
+    for task in program
+        .tasks
+        .values()
+        .filter(|task| task.agent_task || live_names.contains(&task.name.as_str()))
+    {
+        register_live_task(
+            &mut registry,
+            program,
+            task,
+            mode,
+            client.clone(),
+            tools.clone(),
+            trace_live,
+        );
+    }
+    Ok(registry)
+}
 
 pub fn default_registry(program: &Program) -> Registry {
     let mut r = Registry::default();
@@ -69,6 +134,112 @@ pub fn default_registry(program: &Program) -> Registry {
         })
     }
     r
+}
+
+fn register_live_task(
+    registry: &mut Registry,
+    program: &Program,
+    task: &TaskDef,
+    mode: AdapterMode,
+    client: Arc<dyn ModelClient>,
+    tools: Arc<ToolRegistry>,
+    trace_live: bool,
+) {
+    let (program, task) = (program.clone(), task.clone());
+    let task_name = task.name.clone();
+    registry.register(task_name.clone(), move |args, agent_name| {
+        let agent = agent_name.and_then(|name| program.agents.get(name));
+        let model = agent
+            .and_then(|agent| agent.model.as_deref())
+            .map(|model| map_model(mode, model))
+            .unwrap_or_else(|| default_model(mode).into());
+        let schema = type_schema(&program, &task.return_type);
+        let prompt = format!(
+            "Task name: {}\nTask inputs:\n{}\n\nReturn schema:\n{}\n\nReturn only minified valid JSON on one line, without markdown fences or commentary.",
+            task.name,
+            serde_json::to_string_pretty(args).unwrap(),
+            serde_json::to_string_pretty(&schema).unwrap()
+        );
+        if trace_live {
+            eprintln!(
+                "[trace] task={} agent={} model={} start",
+                task.name,
+                agent_name.unwrap_or("default-agent"),
+                model
+            );
+        }
+        let request = CompletionRequest {
+            model: &model,
+            prompt: &prompt,
+            system: Some(
+                "You execute typed AGL tasks. Use tools when helpful and satisfy the declared JSON schema exactly.",
+            ),
+            max_output_tokens: Some(1800),
+        };
+        let definitions = agent
+            .map(|agent| tool_definitions(&program, &agent.tools))
+            .unwrap_or_default();
+        let raw = if definitions.is_empty() {
+            client.complete(request)
+        } else {
+            client.complete_with_tools(
+                request,
+                &definitions,
+                &|name, call_args| {
+                    tools
+                        .execute(&program, name, call_args)
+                        .map_err(|e| crate::adapters::AdapterError::Tool {
+                            tool: name.into(),
+                            detail: e.to_string(),
+                        })
+                },
+                8,
+            )
+        }
+        .map_err(|e| e.to_string())?;
+        parse_model_json(&task_name, &raw)
+    });
+}
+
+fn parse_model_json(task: &str, raw: &str) -> Result<Value, String> {
+    let mut text = raw.trim();
+    if text.starts_with("```") {
+        text = text
+            .split_once('\n')
+            .map(|(_, rest)| rest)
+            .unwrap_or(text.trim_start_matches('`'));
+    }
+    text = text.strip_suffix("```").unwrap_or(text).trim();
+    serde_json::from_str(text)
+        .or_else(|_| {
+            let (start, end) = (text.find('{'), text.rfind('}'));
+            match (start, end) {
+                (Some(start), Some(end)) if end > start => serde_json::from_str(&text[start..=end]),
+                _ => Err(serde_json::Error::io(std::io::Error::other(
+                    "no JSON object in response",
+                ))),
+            }
+        })
+        .map_err(|_| format!("agent task '{task}' returned non-JSON output: {text:?}"))
+}
+
+fn default_model(mode: AdapterMode) -> &'static str {
+    match mode {
+        AdapterMode::OpenAi => "gpt-4.1-mini",
+        AdapterMode::Anthropic => "claude-haiku-4-5-20251001",
+        AdapterMode::Mock => "mock",
+    }
+}
+
+fn map_model(mode: AdapterMode, model: &str) -> String {
+    if mode != AdapterMode::Anthropic {
+        return model.into();
+    }
+    match model {
+        "gpt-4.1" | "gpt-4o" => "claude-sonnet-4-20250514".into(),
+        "gpt-4.1-mini" | "gpt-4o-mini" => "claude-haiku-4-5-20251001".into(),
+        _ => model.into(),
+    }
 }
 fn s<'a>(a: &'a BTreeMap<String, Value>, k: &str) -> &'a str {
     a.get(k).and_then(Value::as_str).unwrap_or("")

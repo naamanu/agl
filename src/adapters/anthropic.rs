@@ -59,7 +59,7 @@ impl ModelClient for AnthropicClient {
         &self,
         r: CompletionRequest<'_>,
         tools: &[Value],
-        call_tool: &ToolExecutor,
+        call_tool: &ToolExecutor<'_>,
         max_round_trips: usize,
     ) -> Result<String, AdapterError> {
         let tools: Vec<_> = tools.iter().map(convert_tool).collect();

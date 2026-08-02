@@ -1,0 +1,23 @@
+[package]
+name = "agl"
+version = "0.2.0"
+edition = "2024"
+description = "A tiny typed DSL for agentic applications"
+license = "MIT"
+
+[lib]
+name = "agl"
+path = "src/lib.rs"
+
+[[bin]]
+name = "agl"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.5", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+thiserror = "2"
+
+[dev-dependencies]
+pretty_assertions = "1"

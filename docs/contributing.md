@@ -4,32 +4,33 @@ This guide explains how to extend AgentLang — adding language features, new ta
 
 ## Development workflow
 
-1. Edit source files.
-2. Run syntax validation:
+1. Edit the Rust source in `src/`. Keep the Python implementation synchronized when changing language semantics.
+2. Format and run the native suite:
 
     ```bash
-    python -m py_compile main.py agentlang/*.py agentlang/adapters/*.py
+    cargo fmt --all -- --check
+    cargo test
     ```
 
 3. Run a representative example:
 
     ```bash
-    python main.py examples/blog.agent blog_post \
+    cargo run -- examples/blog.agent blog_post \
       --input '{"topic":"agent memory patterns"}'
     ```
 
 4. Run the retry/fallback example to exercise the failure path:
 
     ```bash
-    python main.py examples/reliability.agent resilient_brief \
+    cargo run -- examples/reliability.agent resilient_brief \
       --input '{"topic":"api-status","fail_count":5}'
     ```
 
-5. Run the test suite:
+5. Check the largest language fixture and retain the Python regression baseline:
 
     ```bash
-    python main.py examples/showcase_all_features.agent --test \
-      --plugin examples/showcase_plugin.py
+    cargo run -- examples/showcase_all_features.agent --check
+    python3 -m unittest discover -s tests
     ```
 
 6. If you changed DSL or runtime semantics, update the relevant docs (see below).
@@ -37,6 +38,7 @@ This guide explains how to extend AgentLang — adding language features, new ta
 ## Project layout
 
 ```text
+src/               -- primary Rust compiler and runtime
 agentlang/
   ast.py          -- AST node dataclasses
   lexer.py        -- tokenizer + string decoder
@@ -53,7 +55,7 @@ agentlang/
 examples/
   *.agent         -- runnable example programs
 docs/             -- this documentation
-main.py           -- CLI entrypoint
+main.py           -- Python compatibility CLI
 ```
 
 ## Extending the language

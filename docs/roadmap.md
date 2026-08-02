@@ -144,35 +144,35 @@ Acceptance criteria:
 
 ### Async runtime and cancellation
 
-- [ ] Replace abandoned timeout threads with an async execution engine.
-- [ ] Propagate cooperative cancellation through pipelines, tasks, tools, and adapters.
-- [ ] Define scoped deadlines and cleanup behavior.
-- [ ] Ensure every spawned operation is awaited, cancelled, or durably detached by explicit policy.
+- [x] Replace abandoned timeout threads with an async execution engine.
+- [x] Propagate cooperative cancellation through pipelines, tasks, tools, and adapters.
+- [x] Define scoped deadlines and cleanup behavior.
+- [x] Ensure every spawned operation is awaited, cancelled, or durably detached by explicit policy.
 
 ### Concurrency language
 
-- [ ] Generalize parallel branches beyond direct task calls where semantics remain clear.
-- [ ] Add bounded `parallel map` with stable result ordering.
-- [ ] Add `race` with explicit winner and loser-cancellation semantics.
-- [ ] Add fail-fast and collect-all policies.
-- [ ] Add provider/tool concurrency groups and rate limits.
-- [ ] Define nested concurrency-budget behavior.
+- [x] Generalize parallel branches beyond direct task calls where semantics remain clear.
+- [x] Add bounded `parallel map` with stable result ordering.
+- [x] Add `race` with explicit winner and loser-cancellation semantics.
+- [x] Add fail-fast and collect-all policies.
+- [x] Add provider/tool concurrency groups and rate limits.
+- [x] Define nested concurrency-budget behavior.
 
 ### Durable workflows
 
-- [ ] Assign stable execution and invocation identities.
-- [ ] Introduce an event-store abstraction and a local SQLite implementation.
-- [ ] Checkpoint completed operations and pipeline state.
-- [ ] Resume after process failure without repeating completed side effects.
-- [ ] Record nondeterministic model, tool, time, and external-input events for replay.
-- [ ] Detect incompatible source or deployment changes during resume.
-- [ ] Add retention, redaction, and schema-migration policies for stored histories.
+- [x] Assign stable execution and invocation identities.
+- [x] Introduce an event-store abstraction and a local SQLite implementation.
+- [x] Checkpoint completed operations and pipeline state.
+- [x] Resume after process failure without repeating completed side effects.
+- [x] Record nondeterministic model, tool, time, and external-input events for replay.
+- [x] Detect incompatible source or deployment changes during resume.
+- [x] Add retention, redaction, and schema-migration policies for stored histories.
 
 ### Human interaction
 
-- [ ] Add typed approval/input suspension points.
-- [ ] Resume suspended workflows through CLI and embedding APIs.
-- [ ] Define approval expiry, rejection, delegation, and audit behavior.
+- [x] Add typed approval/input suspension points.
+- [x] Resume suspended workflows through CLI and embedding APIs.
+- [x] Define approval expiry, rejection, delegation, and audit behavior.
 
 Acceptance criteria:
 
@@ -225,9 +225,9 @@ Acceptance criteria:
 
 These requirements apply throughout phases 0.3–0.6 rather than being deferred to one release.
 
-- [ ] Redact secrets from diagnostics, traces, event histories, and evaluation artifacts.
+- [x] Redact secrets from diagnostics, traces, event histories, and evaluation artifacts.
 - [ ] Restrict tools by declared capabilities and deployment policy.
-- [ ] Track model, prompt, tool, source, and human-approval provenance.
+- [x] Track model, prompt, tool, source, and human-approval provenance.
 - [ ] Add configurable network-host and filesystem-path allowlists.
 - [ ] Make external writes and approval requirements visible in static summaries.
 - [ ] Define trust boundaries for native, Python, and future process-isolated extensions.

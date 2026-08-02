@@ -50,6 +50,8 @@ nav:
       - Effects & Idempotency: concepts/effects.md
       - Retries & Budgets: concepts/retries-and-budgets.md
       - Evaluation: concepts/evaluation.md
+      - Structured Concurrency: concepts/structured-concurrency.md
+      - Durable Workflows: concepts/durable-workflows.md
       - Deployment Bindings: concepts/deployment.md
       - Error Handling: concepts/error-handling.md
       - Testing: concepts/testing.md

@@ -6,6 +6,7 @@ use reqwest::blocking::Client;
 use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use std::sync::{Condvar, Mutex};
 use std::time::Duration;
 use thiserror::Error;
 use url::form_urlencoded;
@@ -30,11 +31,22 @@ pub enum ToolError {
     },
     #[error("{tool} network error: {detail}")]
     Network { tool: String, detail: String },
+    #[error("tool '{0}' was cancelled")]
+    Cancelled(String),
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct ToolRegistry {
     handlers: BTreeMap<String, ToolHandler>,
+    groups: Arc<(Mutex<BTreeMap<String, ToolGroupState>>, Condvar)>,
+}
+impl Default for ToolRegistry {
+    fn default() -> Self {
+        Self {
+            handlers: BTreeMap::new(),
+            groups: Arc::new((Mutex::new(BTreeMap::new()), Condvar::new())),
+        }
+    }
 }
 
 impl ToolRegistry {
@@ -51,20 +63,113 @@ impl ToolRegistry {
         name: &str,
         args: &Map<String, Value>,
     ) -> Result<Value, ToolError> {
+        self.execute_contextual(program, name, args, None)
+    }
+
+    pub fn execute_contextual(
+        &self,
+        program: &Program,
+        name: &str,
+        args: &Map<String, Value>,
+        invocation: Option<&crate::runtime::Invocation>,
+    ) -> Result<Value, ToolError> {
         let declaration = program
             .tools
             .get(name)
             .ok_or_else(|| ToolError::Undeclared { tool: name.into() })?;
         validate_args(program, declaration, args)?;
+        let _permit = declaration
+            .concurrency_group
+            .as_ref()
+            .map(|group| {
+                self.acquire(
+                    group,
+                    declaration.concurrency_limit.unwrap_or(1),
+                    declaration.rate_limit_per_second,
+                    invocation,
+                )
+            })
+            .transpose()?;
         let handler = self
             .handlers
             .get(name)
             .ok_or_else(|| ToolError::Unknown(name.into()))?;
+        if let Some(invocation) = invocation {
+            invocation.record(
+                "tool_start",
+                json!({"tool":name,"invocation_id":invocation.invocation_id,"args":args}),
+            );
+        }
         let result = handler(args)?;
         if !value_matches(program, &result, &declaration.return_type) {
             return Err(ToolError::InvalidResult { tool: name.into() });
         }
+        if let Some(invocation) = invocation {
+            invocation.record(
+                "tool_result",
+                json!({"tool":name,"invocation_id":invocation.invocation_id,"result":result}),
+            );
+        }
         Ok(result)
+    }
+
+    fn acquire(
+        &self,
+        group: &str,
+        limit: u32,
+        rate: Option<u32>,
+        invocation: Option<&crate::runtime::Invocation>,
+    ) -> Result<ToolGroupPermit, ToolError> {
+        let (lock, condition) = &*self.groups;
+        let mut groups = lock.lock().unwrap();
+        loop {
+            if invocation.is_some_and(|invocation| invocation.cancellation.is_cancelled()) {
+                return Err(ToolError::Cancelled(group.into()));
+            }
+            let state = groups.entry(group.into()).or_default();
+            let ready = rate.is_none_or(|rate| {
+                state.last_start.elapsed() >= Duration::from_secs_f64(1.0 / f64::from(rate))
+            });
+            if state.active < limit && ready {
+                state.active += 1;
+                state.last_start = std::time::Instant::now();
+                break;
+            }
+            let (next, _) = condition
+                .wait_timeout(groups, Duration::from_millis(10))
+                .unwrap();
+            groups = next;
+        }
+        Ok(ToolGroupPermit {
+            group: group.into(),
+            groups: self.groups.clone(),
+        })
+    }
+}
+
+struct ToolGroupState {
+    active: u32,
+    last_start: std::time::Instant,
+}
+impl Default for ToolGroupState {
+    fn default() -> Self {
+        Self {
+            active: 0,
+            last_start: std::time::Instant::now() - Duration::from_secs(3600),
+        }
+    }
+}
+struct ToolGroupPermit {
+    group: String,
+    groups: Arc<(Mutex<BTreeMap<String, ToolGroupState>>, Condvar)>,
+}
+impl Drop for ToolGroupPermit {
+    fn drop(&mut self) {
+        let (lock, condition) = &*self.groups;
+        if let Some(state) = lock.lock().unwrap().get_mut(&self.group) {
+            state.active = state.active.saturating_sub(1);
+        }
+        condition.notify_all();
     }
 }
 

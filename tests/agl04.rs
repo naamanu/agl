@@ -113,6 +113,9 @@ fn usage_exhausts_a_typed_pipeline_budget() {
         Ok(TaskOutput {
             value: "answer".into(),
             usage: Usage {
+                provider: Some("test".into()),
+                model: Some("test-model".into()),
+                prompt_fingerprint: Some("test-prompt".into()),
                 input_tokens: 4,
                 output_tokens: 3,
                 cost_usd: 0.005,

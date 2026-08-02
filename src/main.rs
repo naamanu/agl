@@ -3,10 +3,11 @@ use agl::context::ExecutionContext;
 use agl::deployment::DeploymentConfig;
 use agl::diagnostic::{RenderedDiagnostic, render_diagnostic};
 use agl::evaluation::{EvalBaseline, run_evaluation};
+use agl::event_store::SqliteEventStore;
 use agl::plugins::load_python_plugin_with_tools;
 use agl::stdlib::{AdapterMode, registry_for_with_tools};
 use agl::{
-    analyze_program, check_program, execute_pipeline, format_pipeline, infer_program_effects,
+    analyze_program, check_program, execute_pipeline_async, format_pipeline, infer_program_effects,
     parse_program, run_tests,
 };
 use clap::Parser;
@@ -14,6 +15,7 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 use std::io::{self, Write};
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 #[derive(Parser)]
@@ -43,6 +45,14 @@ struct Cli {
     eval: Option<String>,
     #[arg(long, requires = "eval")]
     update_baseline: bool,
+    #[arg(long)]
+    event_store: Option<PathBuf>,
+    #[arg(long)]
+    execution_id: Option<String>,
+    #[arg(long, requires = "event_store")]
+    resume: bool,
+    #[arg(long = "approval", value_name = "NAME=BOOL")]
+    approvals: Vec<String>,
     #[arg(long = "plugin")]
     plugins: Vec<String>,
 }
@@ -158,7 +168,7 @@ fn repl() -> Result<(), Box<dyn std::error::Error>> {
                     let object = raw.as_object().ok_or("input JSON must be an object")?;
                     let inputs = object.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
                     let registry = build_registry(program, mode, args.trace_live, &args.plugins)?;
-                    Ok(execute_pipeline(
+                    Ok(execute_async(
                         program,
                         name,
                         inputs,
@@ -278,7 +288,24 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
         return Ok(());
     }
-    let context = ExecutionContext::default();
+    let approvals = parse_approvals(&cli.approvals)?;
+    let context = if let Some(path) = &cli.event_store {
+        let execution_id = cli
+            .execution_id
+            .clone()
+            .unwrap_or_else(|| format!("agl-{}", std::process::id()));
+        ExecutionContext::durable(
+            execution_id,
+            Arc::new(SqliteEventStore::open(path)?),
+            cli.resume,
+        )?
+        .with_approvals(approvals)
+    } else {
+        if cli.execution_id.is_some() {
+            return Err("--execution-id requires --event-store".into());
+        }
+        ExecutionContext::default().with_approvals(approvals)
+    };
     if cli.test {
         let results = run_tests(&program, &registry, &context);
         let mut failed = 0;
@@ -301,7 +328,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         let raw: Value = serde_json::from_str(&cli.input)?;
         let obj = raw.as_object().ok_or("--input must be a JSON object")?;
         let inputs: BTreeMap<_, _> = obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-        let result = execute_pipeline(&program, &name, inputs, &registry, &context)?;
+        let result = execute_async(&program, &name, inputs, &registry, &context)?;
         println!(
             "{}",
             serde_json::to_string_pretty(&serde_json::json!({"result":result}))?
@@ -311,6 +338,46 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         std::fs::write(path, serde_json::to_string_pretty(&context.events())?)?
     }
     Ok(())
+}
+
+fn execute_async(
+    program: &agl::ast::Program,
+    name: &str,
+    inputs: BTreeMap<String, Value>,
+    registry: &agl::Registry,
+    context: &ExecutionContext,
+) -> Result<Value, agl::ExecutionError> {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| agl::ExecutionError {
+            kind: "runtime",
+            message: error.to_string(),
+            operation: None,
+            retryable: false,
+        })?
+        .block_on(execute_pipeline_async(
+            Arc::new(program.clone()),
+            name.into(),
+            inputs,
+            registry.clone(),
+            context.clone(),
+        ))
+}
+
+fn parse_approvals(
+    values: &[String],
+) -> Result<BTreeMap<String, bool>, Box<dyn std::error::Error>> {
+    values
+        .iter()
+        .map(|value| {
+            let (name, decision) = value.split_once('=').ok_or("approval must use NAME=BOOL")?;
+            let decision = decision
+                .parse::<bool>()
+                .map_err(|_| "approval decision must be true or false")?;
+            Ok((name.to_owned(), decision))
+        })
+        .collect()
 }
 
 fn provider_name(adapter: &str) -> Option<&str> {

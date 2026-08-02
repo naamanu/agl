@@ -197,7 +197,7 @@ impl Parser {
         if !SUPPORTED_LANGUAGE_VERSIONS.contains(&version.as_str()) {
             return Err(ParseError::UnsupportedVersion {
                 version,
-                supported: "0.2, 0.3, 0.4",
+                supported: "0.2, 0.3, 0.4, 0.5",
                 line: span.line,
                 col: span.col,
             });
@@ -571,6 +571,9 @@ impl Parser {
         let mut agent_task = false;
         let mut effects = BTreeSet::new();
         let mut idempotency = Idempotency::Unspecified;
+        let mut concurrency_group = None;
+        let mut concurrency_limit = None;
+        let mut rate_limit_per_second = None;
         let mut seen = BTreeSet::new();
         while !self.at("{") {
             let clause = self.cur().text.clone();
@@ -587,6 +590,21 @@ impl Parser {
                 }
                 "effects" => effects = self.effect_set()?,
                 "idempotency" => idempotency = self.idempotency()?,
+                "concurrency_group" => {
+                    self.require_05("concurrency groups")?;
+                    self.bump();
+                    concurrency_group = Some(self.ident()?.text);
+                }
+                "concurrency_limit" => {
+                    self.require_05("concurrency limits")?;
+                    self.bump();
+                    concurrency_limit = Some(self.positive_integer("concurrency_limit")?);
+                }
+                "rate_limit" => {
+                    self.require_05("rate limits")?;
+                    self.bump();
+                    rate_limit_per_second = Some(self.positive_integer("rate_limit")?);
+                }
                 _ => return Err(self.error("unexpected task clause".into())),
             }
         }
@@ -599,6 +617,9 @@ impl Parser {
             agent_task,
             effects,
             idempotency,
+            concurrency_group,
+            concurrency_limit,
+            rate_limit_per_second,
         })
     }
     fn tool(&mut self) -> Result<ToolDef, ParseError> {
@@ -609,6 +630,9 @@ impl Parser {
         let return_type = self.ty()?;
         let mut effects = BTreeSet::new();
         let mut idempotency = Idempotency::Unspecified;
+        let mut concurrency_group = None;
+        let mut concurrency_limit = None;
+        let mut rate_limit_per_second = None;
         let mut seen = BTreeSet::new();
         while !self.at("{") {
             let clause = self.cur().text.clone();
@@ -620,6 +644,21 @@ impl Parser {
             match clause.as_str() {
                 "effects" => effects = self.effect_set()?,
                 "idempotency" => idempotency = self.idempotency()?,
+                "concurrency_group" => {
+                    self.require_05("concurrency groups")?;
+                    self.bump();
+                    concurrency_group = Some(self.ident()?.text);
+                }
+                "concurrency_limit" => {
+                    self.require_05("concurrency limits")?;
+                    self.bump();
+                    concurrency_limit = Some(self.positive_integer("concurrency_limit")?);
+                }
+                "rate_limit" => {
+                    self.require_05("rate limits")?;
+                    self.bump();
+                    rate_limit_per_second = Some(self.positive_integer("rate_limit")?);
+                }
                 _ => return Err(self.error("unexpected tool clause".into())),
             }
         }
@@ -631,6 +670,9 @@ impl Parser {
             return_type,
             effects,
             idempotency,
+            concurrency_group,
+            concurrency_limit,
+            rate_limit_per_second,
         })
     }
     fn pipeline(&mut self) -> Result<PipelineDef, ParseError> {
@@ -757,11 +799,23 @@ impl Parser {
     }
 
     fn require_04(&self, feature: &str) -> Result<(), ParseError> {
-        if self.program.language_version == "0.4" {
+        if matches!(
+            self.program.language_version.as_str(),
+            "0.4" | "0.5" | "0.6"
+        ) {
             Ok(())
         } else {
             Err(ParseError::Semantic(format!(
                 "{feature} require language \"0.4\""
+            )))
+        }
+    }
+    fn require_05(&self, feature: &str) -> Result<(), ParseError> {
+        if matches!(self.program.language_version.as_str(), "0.5" | "0.6") {
+            Ok(())
+        } else {
+            Err(ParseError::Semantic(format!(
+                "{feature} requires language \"0.5\""
             )))
         }
     }
@@ -942,9 +996,54 @@ impl Parser {
         let span = self.cur().span;
         match self.cur().text.as_str() {
             "let" => {
-                let x = self.run()?;
-                self.expect(";")?;
-                Ok(Stmt::Run(x))
+                if self
+                    .tokens
+                    .get(self.pos + 3)
+                    .is_some_and(|token| token.text == "parallel")
+                {
+                    self.parallel_map()
+                } else if self
+                    .tokens
+                    .get(self.pos + 3)
+                    .is_some_and(|token| token.text == "race")
+                {
+                    self.race()
+                } else if self
+                    .tokens
+                    .get(self.pos + 3)
+                    .is_some_and(|token| token.text == "approve")
+                {
+                    self.require_05("human approval")?;
+                    self.expect("let")?;
+                    let target = self.ident()?.text;
+                    self.expect("=")?;
+                    self.expect("approve")?;
+                    let approval = self.ident()?.text;
+                    let prompt = self.string()?.text;
+                    let expires_seconds = if self.take("expires") {
+                        Some(self.integer("approval expiry")? as u64)
+                    } else {
+                        None
+                    };
+                    let delegate = if self.take("delegate") {
+                        Some(self.ident()?.text)
+                    } else {
+                        None
+                    };
+                    self.expect(";")?;
+                    Ok(Stmt::Approve {
+                        target,
+                        approval,
+                        prompt,
+                        expires_seconds,
+                        delegate,
+                        span,
+                    })
+                } else {
+                    let x = self.run()?;
+                    self.expect(";")?;
+                    Ok(Stmt::Run(x))
+                }
             }
             "parallel" => {
                 self.bump();
@@ -1118,6 +1217,73 @@ impl Parser {
             _ => Err(self.error("unexpected statement".into())),
         }
     }
+    fn parallel_map(&mut self) -> Result<Stmt, ParseError> {
+        self.require_05("parallel map")?;
+        let span = self.expect("let")?.span;
+        let target = self.ident()?.text;
+        self.expect("=")?;
+        self.expect("parallel")?;
+        self.expect("map")?;
+        let binding = self.ident()?.text;
+        self.expect("in")?;
+        let items = self.expr()?;
+        let max_concurrency = if self.take("max_concurrency") {
+            self.integer("max_concurrency")? as usize
+        } else {
+            8
+        };
+        if max_concurrency == 0 {
+            return Err(ParseError::Semantic(
+                "max_concurrency must be positive".into(),
+            ));
+        }
+        let failure_policy = if self.take("collect_all") {
+            FailurePolicy::CollectAll
+        } else {
+            self.take("fail_fast");
+            FailurePolicy::FailFast
+        };
+        self.expect("{")?;
+        let run = self.run()?;
+        self.expect(";")?;
+        self.expect("}")?;
+        self.expect(";")?;
+        Ok(Stmt::ParallelMap {
+            target,
+            binding,
+            items,
+            run,
+            max_concurrency,
+            failure_policy,
+            span,
+        })
+    }
+
+    fn race(&mut self) -> Result<Stmt, ParseError> {
+        self.require_05("race")?;
+        let span = self.expect("let")?.span;
+        let target = self.ident()?.text;
+        self.expect("=")?;
+        self.expect("race")?;
+        self.expect("{")?;
+        let mut branches = Vec::new();
+        while !self.at("}") {
+            branches.push(self.run()?);
+            self.expect(";")?;
+        }
+        self.expect("}")?;
+        self.expect(";")?;
+        if branches.len() < 2 {
+            return Err(ParseError::Semantic(
+                "race requires at least two branches".into(),
+            ));
+        }
+        Ok(Stmt::Race {
+            target,
+            branches,
+            span,
+        })
+    }
     fn run(&mut self) -> Result<RunStmt, ParseError> {
         let span = self.expect("let")?.span;
         let target = self.ident()?.text;
@@ -1257,6 +1423,14 @@ impl Parser {
         t.text
             .parse()
             .map_err(|_| ParseError::Semantic(format!("invalid {label}")))
+    }
+    fn positive_integer(&mut self, label: &str) -> Result<u32, ParseError> {
+        let value = self.integer(label)?;
+        if value == 0 {
+            Err(ParseError::Semantic(format!("{label} must be positive")))
+        } else {
+            Ok(value)
+        }
     }
     fn arg_map(&mut self) -> Result<BTreeMap<String, Expr>, ParseError> {
         self.expect("{")?;
@@ -1542,6 +1716,9 @@ impl Parser {
                 agent_task: false,
                 effects: BTreeSet::new(),
                 idempotency: Idempotency::Pure,
+                concurrency_group: None,
+                concurrency_limit: None,
+                rate_limit_per_second: None,
             };
             match self.program.tasks.get("countdown") {
                 None => {
@@ -1903,6 +2080,12 @@ fn resolve_stmts(xs: &mut [Stmt], sigs: &BTreeMap<String, Vec<String>>) -> Resul
             Stmt::Parallel { branches, .. } => {
                 for r in branches {
                     resolve_run(r, sigs)?
+                }
+            }
+            Stmt::ParallelMap { run, .. } => resolve_run(run, sigs)?,
+            Stmt::Race { branches, .. } => {
+                for run in branches {
+                    resolve_run(run, sigs)?;
                 }
             }
             Stmt::If {

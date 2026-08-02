@@ -60,7 +60,7 @@ pub fn check_program(p: &Program) -> Result<(), CheckError> {
                 format!("pipeline '{}' has no compatible return", x.name),
             ));
         }
-        if p.language_version == "0.3" && !block_terminates(&x.statements) {
+        if p.language_version != "0.2" && !block_terminates(&x.statements) {
             return Err(at(
                 x.statements
                     .last()
@@ -136,6 +136,9 @@ fn validate_contracts(program: &Program) -> Result<(), CheckError> {
             &task.params,
             &task.effects,
             &task.idempotency,
+            &task.concurrency_group,
+            task.concurrency_limit,
+            task.rate_limit_per_second,
             program,
         )?;
     }
@@ -146,21 +149,36 @@ fn validate_contracts(program: &Program) -> Result<(), CheckError> {
             &tool.params,
             &tool.effects,
             &tool.idempotency,
+            &tool.concurrency_group,
+            tool.concurrency_limit,
+            tool.rate_limit_per_second,
             program,
         )?;
     }
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)] // Mirrors the declaration contract being validated.
 fn validate_contract(
     kind: &str,
     name: &str,
     params: &[Param],
     effects: &std::collections::BTreeSet<String>,
     idempotency: &Idempotency,
+    concurrency_group: &Option<String>,
+    concurrency_limit: Option<u32>,
+    rate_limit_per_second: Option<u32>,
     program: &Program,
 ) -> Result<(), CheckError> {
     let span = Span { line: 1, col: 1 };
+    if concurrency_group.is_none()
+        && (concurrency_limit.is_some() || rate_limit_per_second.is_some())
+    {
+        return Err(at(
+            span,
+            format!("{kind} '{name}' must declare concurrency_group before limits"),
+        ));
+    }
     if matches!(idempotency, Idempotency::Pure) && !effects.is_empty() {
         return Err(at(
             span,
@@ -223,6 +241,9 @@ fn collect_direct_effects(
     program: &Program,
     effects: &mut std::collections::BTreeSet<String>,
 ) {
+    if contains_approval(statements) {
+        effects.insert("human".into());
+    }
     visit_runs(statements, &mut |run| {
         let Some(task) = program.tasks.get(&run.callable) else {
             return;
@@ -239,6 +260,30 @@ fn collect_direct_effects(
             }
         }
     });
+}
+
+fn contains_approval(statements: &[Stmt]) -> bool {
+    statements.iter().any(|statement| match statement {
+        Stmt::Approve { .. } => true,
+        Stmt::If {
+            then_body,
+            else_body,
+            ..
+        }
+        | Stmt::IfLet {
+            then_body,
+            else_body,
+            ..
+        } => contains_approval(then_body) || contains_approval(else_body),
+        Stmt::While { body, .. } => contains_approval(body),
+        Stmt::TryCatch {
+            try_body,
+            catch_body,
+            ..
+        } => contains_approval(try_body) || contains_approval(catch_body),
+        Stmt::Match { arms, .. } => arms.iter().any(|arm| contains_approval(&arm.body)),
+        _ => false,
+    })
 }
 
 fn collect_pipeline_calls(
@@ -258,6 +303,8 @@ fn visit_runs(statements: &[Stmt], visitor: &mut impl FnMut(&RunStmt)) {
         match statement {
             Stmt::Run(run) => visitor(run),
             Stmt::Parallel { branches, .. } => branches.iter().for_each(&mut *visitor),
+            Stmt::ParallelMap { run, .. } => visitor(run),
+            Stmt::Race { branches, .. } => branches.iter().for_each(&mut *visitor),
             Stmt::If {
                 then_body,
                 else_body,
@@ -285,7 +332,11 @@ fn visit_runs(statements: &[Stmt], visitor: &mut impl FnMut(&RunStmt)) {
                     visit_runs(&arm.body, visitor);
                 }
             }
-            Stmt::Assert { .. } | Stmt::Return { .. } | Stmt::Break(_) | Stmt::Continue(_) => {}
+            Stmt::Approve { .. }
+            | Stmt::Assert { .. }
+            | Stmt::Return { .. }
+            | Stmt::Break(_)
+            | Stmt::Continue(_) => {}
         }
     }
 }
@@ -314,10 +365,16 @@ fn analyze_block(statements: &[Stmt], warnings: &mut Vec<AnalysisWarning>) {
             Stmt::Run(run) => {
                 warn_unused(&run.target, run.span, &statements[index + 1..], warnings)
             }
+            Stmt::Approve { target, span, .. } => {
+                warn_unused(target, *span, &statements[index + 1..], warnings)
+            }
             Stmt::Parallel { branches, .. } => {
                 for run in branches {
                     warn_unused(&run.target, run.span, &statements[index + 1..], warnings);
                 }
+            }
+            Stmt::ParallelMap { target, span, .. } | Stmt::Race { target, span, .. } => {
+                warn_unused(target, *span, &statements[index + 1..], warnings);
             }
             Stmt::If {
                 then_body,
@@ -403,6 +460,14 @@ fn block_references(statements: &[Stmt], name: &str) -> bool {
             .iter()
             .flat_map(|run| run.args.values())
             .any(|expr| expr_references(expr, name)),
+        Stmt::ParallelMap { items, run, .. } => {
+            expr_references(items, name)
+                || run.args.values().any(|expr| expr_references(expr, name))
+        }
+        Stmt::Race { branches, .. } => branches
+            .iter()
+            .flat_map(|run| run.args.values())
+            .any(|expr| expr_references(expr, name)),
         Stmt::If {
             condition,
             then_body,
@@ -436,7 +501,7 @@ fn block_references(statements: &[Stmt], name: &str) -> bool {
         }
         Stmt::Assert { condition, .. } => expr_references(condition, name),
         Stmt::Return { expr, .. } => expr_references(expr, name),
-        Stmt::Break(_) | Stmt::Continue(_) => false,
+        Stmt::Approve { .. } | Stmt::Break(_) | Stmt::Continue(_) => false,
     })
 }
 
@@ -497,6 +562,9 @@ fn block(
                 let ty = run(r, p, env)?;
                 env.insert(r.target.clone(), ty);
             }
+            Stmt::Approve { target, .. } => {
+                env.insert(target.clone(), TypeExpr::Bool);
+            }
             Stmt::Parallel {
                 branches,
                 max_concurrency,
@@ -516,6 +584,52 @@ fn block(
                     let ty = run(r, p, env)?;
                     env.insert(r.target.clone(), ty);
                 }
+            }
+            Stmt::ParallelMap {
+                target,
+                binding,
+                items,
+                run: mapped,
+                ..
+            } => {
+                if p.pipelines.contains_key(&mapped.callable) {
+                    return Err(at(
+                        mapped.span,
+                        "parallel map currently requires a direct task call",
+                    ));
+                }
+                let item = match infer(items, env, p)? {
+                    TypeExpr::List(inner) => *inner,
+                    actual => {
+                        return Err(at(
+                            items.span(),
+                            format!("parallel map requires List, got {actual:?}"),
+                        ));
+                    }
+                };
+                let mut branch = env.clone();
+                branch.insert(binding.clone(), item);
+                let output = run(mapped, p, &branch)?;
+                env.insert(target.clone(), TypeExpr::List(Box::new(output)));
+            }
+            Stmt::Race {
+                target, branches, ..
+            } => {
+                if branches
+                    .iter()
+                    .any(|branch| p.pipelines.contains_key(&branch.callable))
+                {
+                    return Err(at(s.span(), "race currently requires direct task calls"));
+                }
+                let mut outputs = branches.iter().map(|branch| run(branch, p, env));
+                let first = outputs.next().expect("parser requires race branches")?;
+                for output in outputs {
+                    let output = output?;
+                    if !assignable(&output, &first) || !assignable(&first, &output) {
+                        return Err(at(s.span(), "race branches must return the same type"));
+                    }
+                }
+                env.insert(target.clone(), first);
             }
             Stmt::If {
                 condition,

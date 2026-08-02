@@ -54,6 +54,7 @@ impl OpenAiClient {
 
 impl ModelClient for OpenAiClient {
     fn complete(&self, request: CompletionRequest<'_>) -> Result<String, AdapterError> {
+        check_cancelled(&request)?;
         let mut payload =
             json!({"model":request.model,"input":input(request.prompt,request.system)});
         if let Some(max) = request.max_output_tokens {
@@ -66,6 +67,7 @@ impl ModelClient for OpenAiClient {
             payload["metadata"] = json!({"agl_idempotency_key":key});
         }
         let response = self.response(payload)?;
+        check_cancelled(&request)?;
         ensure_complete(&response)?;
         extract_text(&response).ok_or(AdapterError::MissingText(PROVIDER))
     }
@@ -77,6 +79,7 @@ impl ModelClient for OpenAiClient {
         call_tool: &ToolExecutor<'_>,
         max_round_trips: usize,
     ) -> Result<String, AdapterError> {
+        check_cancelled(&request)?;
         let mut payload = json!({"model":request.model,"input":input(request.prompt,request.system),"tools":tools,"parallel_tool_calls":false});
         if let Some(max) = request.max_output_tokens {
             payload["max_output_tokens"] = max.into();
@@ -89,6 +92,7 @@ impl ModelClient for OpenAiClient {
         }
         let mut response = self.response(payload)?;
         for _ in 0..max_round_trips {
+            check_cancelled(&request)?;
             let calls = function_calls(&response)?;
             if calls.is_empty() {
                 ensure_complete(&response)?;
@@ -126,6 +130,16 @@ impl ModelClient for OpenAiClient {
             response = self.response(next)?;
         }
         Err(AdapterError::ToolLoopLimit(PROVIDER))
+    }
+}
+fn check_cancelled(request: &CompletionRequest<'_>) -> Result<(), AdapterError> {
+    if request
+        .cancellation
+        .is_some_and(crate::runtime::CancellationToken::is_cancelled)
+    {
+        Err(AdapterError::Cancelled(PROVIDER))
+    } else {
+        Ok(())
     }
 }
 
@@ -228,6 +242,7 @@ mod tests {
                     max_output_tokens: None,
                     reasoning_effort: Some("medium"),
                     idempotency_key: Some("invoke-1"),
+                    cancellation: None,
                 },
                 &[json!({"type":"function","name":"lookup","parameters":{"type":"object"}})],
                 &|name, args| Ok(json!({"name":name,"q":args["q"]})),

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.0 — Unreleased
+
+- Add async embedding, cooperative timeout/race cancellation, ordered bounded parallel map, failure policies, concurrency groups, and rate limits.
+- Add stable execution/invocation identity, event-store traits, local SQLite histories, checkpoint replay, compatibility fingerprints, retention, and redaction.
+- Add persisted typed approval, rejection, delegation, expiry, and CLI resume workflows.
+
 - Add deterministic bounded retry backoff, stable invocation/idempotency keys, contextual handler usage, and scoped pipeline resource budgets for AGL 0.4.
 - Add dataset evaluations, repeated-trial distributions, semantic graders, trace replay, and CI baselines for AGL 0.4.
 

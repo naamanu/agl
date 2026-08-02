@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
-pub const CURRENT_LANGUAGE_VERSION: &str = "0.4";
-pub const SUPPORTED_LANGUAGE_VERSIONS: &[&str] = &["0.2", "0.3", "0.4"];
+pub const CURRENT_LANGUAGE_VERSION: &str = "0.5";
+pub const SUPPORTED_LANGUAGE_VERSIONS: &[&str] = &["0.2", "0.3", "0.4", "0.5"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Span {
@@ -137,6 +137,28 @@ pub enum OnFail {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Stmt {
     Run(RunStmt),
+    Approve {
+        target: String,
+        approval: String,
+        prompt: String,
+        expires_seconds: Option<u64>,
+        delegate: Option<String>,
+        span: Span,
+    },
+    ParallelMap {
+        target: String,
+        binding: String,
+        items: Expr,
+        run: RunStmt,
+        max_concurrency: usize,
+        failure_policy: FailurePolicy,
+        span: Span,
+    },
+    Race {
+        target: String,
+        branches: Vec<RunStmt>,
+        span: Span,
+    },
     Parallel {
         branches: Vec<RunStmt>,
         max_concurrency: Option<usize>,
@@ -188,7 +210,10 @@ impl Stmt {
     pub fn span(&self) -> Span {
         match self {
             Self::Run(x) => x.span,
+            Self::Approve { span, .. } => *span,
             Self::Parallel { span, .. }
+            | Self::ParallelMap { span, .. }
+            | Self::Race { span, .. }
             | Self::If { span, .. }
             | Self::IfLet { span, .. }
             | Self::While { span, .. }
@@ -200,6 +225,12 @@ impl Stmt {
             | Self::Continue(span) => *span,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FailurePolicy {
+    FailFast,
+    CollectAll,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -253,6 +284,9 @@ pub struct TaskDef {
     pub agent_task: bool,
     pub effects: BTreeSet<String>,
     pub idempotency: Idempotency,
+    pub concurrency_group: Option<String>,
+    pub concurrency_limit: Option<u32>,
+    pub rate_limit_per_second: Option<u32>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolDef {
@@ -261,6 +295,9 @@ pub struct ToolDef {
     pub return_type: TypeExpr,
     pub effects: BTreeSet<String>,
     pub idempotency: Idempotency,
+    pub concurrency_group: Option<String>,
+    pub concurrency_limit: Option<u32>,
+    pub rate_limit_per_second: Option<u32>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum Idempotency {

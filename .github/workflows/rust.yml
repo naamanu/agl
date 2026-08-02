@@ -43,5 +43,8 @@ jobs:
       - name: Test
         run: cargo test --locked
 
+      - name: Python compatibility oracle
+        run: python3 -m unittest discover -s tests
+
       - name: Verify package
         run: cargo package --locked

@@ -45,16 +45,27 @@ pub fn registry_for_with_tools(
     if mode == AdapterMode::Mock {
         return Ok(registry);
     }
+    let endpoint = deployment_endpoint(program, mode)?;
     let client: Arc<dyn ModelClient> = match mode {
         AdapterMode::OpenAi => {
             let key = std::env::var("OPENAI_API_KEY")
                 .map_err(|_| "OPENAI_API_KEY is required for --adapter openai".to_string())?;
-            Arc::new(OpenAiClient::new(key).map_err(|e| e.to_string())?)
+            Arc::new(match endpoint {
+                Some(endpoint) => {
+                    OpenAiClient::with_base_url(key, endpoint).map_err(|e| e.to_string())?
+                }
+                None => OpenAiClient::new(key).map_err(|e| e.to_string())?,
+            })
         }
         AdapterMode::Anthropic => {
             let key = std::env::var("ANTHROPIC_API_KEY")
                 .map_err(|_| "ANTHROPIC_API_KEY is required for --adapter anthropic".to_string())?;
-            Arc::new(AnthropicClient::new(key).map_err(|e| e.to_string())?)
+            Arc::new(match endpoint {
+                Some(endpoint) => {
+                    AnthropicClient::with_base_url(key, endpoint).map_err(|e| e.to_string())?
+                }
+                None => AnthropicClient::new(key).map_err(|e| e.to_string())?,
+            })
         }
         AdapterMode::Mock => unreachable!(),
     };
@@ -162,12 +173,16 @@ fn register_live_task(
     let task_name = task.name.clone();
     registry.register(task_name.clone(), move |args, agent_name| {
         let agent = agent_name.and_then(|name| program.agents.get(name));
-        let model = configured_model(mode).unwrap_or_else(|| {
-            agent
-                .and_then(|agent| agent.model.as_deref())
+        let model = agent
+            .and_then(|agent| agent.deployment.as_ref())
+            .map(|binding| binding.model.clone())
+            .or_else(|| configured_model(mode))
+            .unwrap_or_else(|| {
+                agent
+                    .and_then(|agent| agent.model.as_deref())
                 .map(|model| map_model(mode, model))
                 .unwrap_or_else(|| default_model(mode).into())
-        });
+            });
         let schema = type_schema(&program, &task.return_type);
         let prompt = format!(
             "Task name: {}\nTask inputs:\n{}\n\nReturn schema:\n{}\n\nReturn only minified valid JSON on one line, without markdown fences or commentary.",
@@ -190,7 +205,10 @@ fn register_live_task(
                 "You execute typed AGL tasks. Use tools when helpful and satisfy the declared JSON schema exactly.",
             ),
             max_output_tokens: Some(1800),
-            reasoning_effort: (mode == AdapterMode::OpenAi).then_some("medium"),
+            reasoning_effort: agent
+                .and_then(|agent| agent.deployment.as_ref())
+                .and_then(|binding| binding.reasoning_effort.as_deref())
+                .or_else(|| (mode == AdapterMode::OpenAi).then_some("medium")),
         };
         let definitions = agent
             .map(|agent| tool_definitions(&program, &agent.tools))
@@ -215,6 +233,27 @@ fn register_live_task(
         .map_err(|e| e.to_string())?;
         parse_model_json(&task_name, &raw)
     });
+}
+
+fn deployment_endpoint(program: &Program, mode: AdapterMode) -> Result<Option<String>, String> {
+    let provider = match mode {
+        AdapterMode::OpenAi => "openai",
+        AdapterMode::Anthropic => "anthropic",
+        AdapterMode::Mock => return Ok(None),
+    };
+    let endpoints: std::collections::BTreeSet<_> = program
+        .agents
+        .values()
+        .filter_map(|agent| agent.deployment.as_ref())
+        .filter(|binding| binding.provider == provider)
+        .filter_map(|binding| binding.endpoint.clone())
+        .collect();
+    if endpoints.len() > 1 {
+        return Err(format!(
+            "AGL currently requires one {provider} endpoint per deployment"
+        ));
+    }
+    Ok(endpoints.into_iter().next())
 }
 
 fn parse_model_json(task: &str, raw: &str) -> Result<Value, String> {

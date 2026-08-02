@@ -1,5 +1,6 @@
 use agl::adapters::tools::default_tool_registry;
 use agl::context::ExecutionContext;
+use agl::deployment::DeploymentConfig;
 use agl::diagnostic::{RenderedDiagnostic, render_diagnostic};
 use agl::plugins::load_python_plugin_with_tools;
 use agl::stdlib::{AdapterMode, registry_for_with_tools};
@@ -35,6 +36,8 @@ struct Cli {
     lower: bool,
     #[arg(long)]
     effects: bool,
+    #[arg(long)]
+    deployment: Option<PathBuf>,
     #[arg(long = "plugin")]
     plugins: Vec<String>,
 }
@@ -46,6 +49,8 @@ struct ReplCli {
     adapter: String,
     #[arg(long)]
     trace_live: bool,
+    #[arg(long)]
+    deployment: Option<PathBuf>,
     #[arg(long = "plugin")]
     plugins: Vec<String>,
 }
@@ -96,7 +101,11 @@ fn repl() -> Result<(), Box<dyn std::error::Error>> {
                 current = None;
                 println!("Session cleared.");
             }
-            "load" => match load_program(rest.trim()) {
+            "load" => match load_program(
+                rest.trim(),
+                args.deployment.as_deref(),
+                provider_name(&args.adapter),
+            ) {
                 Ok(program) => {
                     println!(
                         "Loaded '{}': {} agents, {} tasks, {} pipelines.",
@@ -166,27 +175,37 @@ fn repl() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn load_program(path: &str) -> Result<agl::ast::Program, Box<dyn std::error::Error>> {
+fn load_program(
+    path: &str,
+    deployment: Option<&std::path::Path>,
+    provider: Option<&str>,
+) -> Result<agl::ast::Program, Box<dyn std::error::Error>> {
     if path.is_empty() {
         return Err("usage: load <path>".into());
     }
     let source = std::fs::read_to_string(path)?;
-    let program = parse_program(&source)
+    let mut program = parse_program(&source)
         .map_err(|error| RenderedDiagnostic(render_diagnostic(path, &source, &error)))?;
     check_program(&program)
         .map_err(|error| RenderedDiagnostic(render_diagnostic(path, &source, &error)))?;
+    if let Some(path) = deployment {
+        DeploymentConfig::load(path)?.apply(&mut program, provider)?;
+    }
     Ok(program)
 }
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     let source = std::fs::read_to_string(&cli.source)?;
-    let program = parse_program(&source).map_err(|error| {
+    let mut program = parse_program(&source).map_err(|error| {
         RenderedDiagnostic(render_diagnostic(cli.source.display(), &source, &error))
     })?;
     check_program(&program).map_err(|error| {
         RenderedDiagnostic(render_diagnostic(cli.source.display(), &source, &error))
     })?;
+    if let Some(path) = &cli.deployment {
+        DeploymentConfig::load(path)?.apply(&mut program, provider_name(&cli.adapter))?;
+    }
     for warning in analyze_program(&program) {
         eprintln!(
             "{}",
@@ -252,6 +271,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         std::fs::write(path, serde_json::to_string_pretty(&context.events())?)?
     }
     Ok(())
+}
+
+fn provider_name(adapter: &str) -> Option<&str> {
+    match adapter {
+        "live" | "openai" => Some("openai"),
+        "anthropic" => Some("anthropic"),
+        _ => None,
+    }
 }
 
 fn build_registry(

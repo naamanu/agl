@@ -85,6 +85,10 @@ const KEYWORDS: &[&str] = &[
     "idempotent",
     "keyed_by",
     "non_idempotent",
+    "requires",
+    "min_context",
+    "max_latency_ms",
+    "quality",
 ];
 
 pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {

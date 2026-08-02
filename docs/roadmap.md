@@ -112,11 +112,11 @@ Acceptance criteria:
 
 ### Provider-independent agents
 
-- [ ] Separate source-level agent requirements from deployment bindings.
-- [ ] Express capability, context, tool, latency, and quality requirements in source.
-- [ ] Move provider, model, endpoint, and reasoning settings into deployment configuration.
-- [ ] Keep an explicit source-level model override as a documented escape hatch.
-- [ ] Validate deployment configuration against agent requirements before execution.
+- [x] Separate source-level agent requirements from deployment bindings.
+- [x] Express capability, context, tool, latency, and quality requirements in source.
+- [x] Move provider, model, endpoint, and reasoning settings into deployment configuration.
+- [x] Keep an explicit source-level model override as a documented escape hatch.
+- [x] Validate deployment configuration against agent requirements before execution.
 
 ### Resource budgets
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.0 — Unreleased
+
+- Added version-gated nominal records, tagged unions, `Result[T, E]`, and exhaustive `match`.
+- Added stable tagged JSON encodings for unions and typed outcomes.
+- Added source-rendered diagnostics, unused/unreachable warnings, name suggestions, and exhaustive return-path checking.
+- Added versioned normative specifications and executable conformance fixtures.
+
 ## 0.2.0 — 2026-08-02
 
 - Reimplemented the AGL lexer, parser, workflow lowering, checker, runtime, and CLI in Rust.

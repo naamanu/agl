@@ -1,0 +1,15 @@
+language "0.3";
+
+record Person {
+  name: String,
+  active: Bool,
+};
+
+pipeline main(name: String) -> Person {
+  let person = identity(Person {name: name, active: true});
+  return person;
+}
+
+pipeline identity(person: Person) -> Person {
+  return person;
+}

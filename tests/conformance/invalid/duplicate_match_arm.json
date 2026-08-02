@@ -1,0 +1,5 @@
+{
+  "source": "invalid/duplicate_match_arm.agent",
+  "phase": "reject",
+  "code": "AGL2001"
+}

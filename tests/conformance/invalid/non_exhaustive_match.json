@@ -1,0 +1,5 @@
+{
+  "source": "invalid/non_exhaustive_match.agent",
+  "phase": "reject",
+  "code": "AGL2001"
+}

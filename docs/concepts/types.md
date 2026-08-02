@@ -1,6 +1,6 @@
 # The Type System
 
-AgentLang has a static structural type system. The type checker runs after parsing, before execution — type errors are caught before any task handler is invoked.
+AgentLang has a static type system with structural objects and nominal records/unions. The type checker runs after parsing, before execution—type errors are caught before any task handler is invoked.
 
 ## Primitive types
 
@@ -98,6 +98,51 @@ task draft(notes: String) -> DraftResult by agent {}
 
 Alias names must be unique. Aliases cannot be recursive.
 
+## Named records
+
+AGL 0.3 adds nominal records. Unlike a transparent alias, a record creates a distinct static type and must be constructed explicitly:
+
+```agentlang
+language "0.3";
+
+record Person {
+  name: String,
+  active: Bool,
+};
+
+pipeline person(name: String) -> Person {
+  return Person {name: name, active: true};
+}
+```
+
+Constructors require exactly the declared fields. Records encode as ordinary JSON objects; nominal identity is checked in AGL source rather than emitted as a runtime tag.
+
+## Tagged unions and `Result`
+
+Closed unions model domain alternatives and structured errors:
+
+```agentlang
+union FetchError {
+  Network { message: String },
+  Cancelled,
+};
+
+task fetch(url: String) -> Result[String, FetchError] {}
+```
+
+Union values carry stable `$type` and `$variant` JSON tags. `Result[T, E]` uses the same representation with `Ok(value)` and `Err(error)` constructors. A typed `Err` is an ordinary value rather than a thrown execution failure.
+
+Use exhaustive matching to consume a union:
+
+```agentlang
+match result {
+  Result::Ok { value } => { return value; }
+  Result::Err { error } => { return "failed"; }
+}
+```
+
+The checker rejects missing or duplicate variants and keeps pattern bindings scoped to their arm.
+
 ## Enum types
 
 An enum declares a closed set of string variants:
@@ -129,6 +174,6 @@ cargo run -- examples/blog.agent blog_post \
 ```
 
 !!! note "`Bool` vs `Number`"
-    `true` and `false` in JSON are Python `bool` values. AgentLang's `Number` type **excludes** booleans — passing `true` where a `Number` is expected is a type error.
+    JSON booleans are distinct from JSON numbers. AgentLang's `Number` type **excludes** booleans—passing `true` where a `Number` is expected is a type error.
 
 ## Next: [Parallel Execution](parallel.md)

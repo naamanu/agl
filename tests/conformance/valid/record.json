@@ -1,0 +1,7 @@
+{
+  "source": "valid/record.agent",
+  "phase": "execute",
+  "pipeline": "main",
+  "input": {"name": "Nana"},
+  "expected": {"name": "Nana", "active": true}
+}

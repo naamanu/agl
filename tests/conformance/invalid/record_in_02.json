@@ -1,0 +1,5 @@
+{
+  "source": "invalid/record_in_02.agent",
+  "phase": "reject",
+  "code": "AGL1002"
+}

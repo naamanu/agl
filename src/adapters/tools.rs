@@ -71,7 +71,10 @@ impl ToolRegistry {
 pub fn default_tool_registry(timeout: Duration) -> Result<ToolRegistry, ToolError> {
     let client = Client::builder()
         .timeout(timeout)
-        .user_agent("AGL/0.2 (+https://nanamanu.com/agl)")
+        .user_agent(format!(
+            "AGL/{} (+https://nanamanu.com/agl)",
+            env!("CARGO_PKG_VERSION")
+        ))
         .build()
         .map_err(|e| ToolError::Network {
             tool: "web tools".into(),
@@ -131,10 +134,25 @@ pub fn type_schema(program: &Program, ty: &TypeExpr) -> Value {
         TypeExpr::String => json!({"type":"string"}),
         TypeExpr::Number => json!({"type":"number"}),
         TypeExpr::Bool => json!({"type":"boolean"}),
+        TypeExpr::Failure => json!({
+            "type":"object",
+            "properties":{
+                "kind":{"type":"string"},
+                "message":{"type":"string"},
+                "operation":{"anyOf":[{"type":"string"},{"type":"null"}]},
+                "retryable":{"type":"boolean"}
+            },
+            "required":["kind","message","operation","retryable"],
+            "additionalProperties":false
+        }),
         TypeExpr::List(item) => json!({"type":"array","items":type_schema(program,item)}),
         TypeExpr::Option(item) => {
             json!({"anyOf":[type_schema(program,item),{"type":"null"}]})
         }
+        TypeExpr::Result(ok, error) => json!({"oneOf":[
+            {"type":"object","properties":{"$type":{"const":"Result"},"$variant":{"const":"Ok"},"value":type_schema(program,ok)},"required":["$type","$variant","value"],"additionalProperties":false},
+            {"type":"object","properties":{"$type":{"const":"Result"},"$variant":{"const":"Err"},"error":type_schema(program,error)},"required":["$type","$variant","error"],"additionalProperties":false}
+        ]}),
         TypeExpr::Obj(fields) => {
             let properties: Map<String, Value> = fields
                 .iter()
@@ -142,6 +160,34 @@ pub fn type_schema(program: &Program, ty: &TypeExpr) -> Value {
                 .collect();
             json!({"type":"object","properties":properties,"required":fields.keys().collect::<Vec<_>>(),"additionalProperties":false})
         }
+        TypeExpr::Record(name) => program
+            .records
+            .get(name)
+            .map(|record| type_schema(program, &TypeExpr::Obj(record.fields.clone())))
+            .unwrap_or_else(|| json!({})),
+        TypeExpr::Union(name) => program
+            .unions
+            .get(name)
+            .map(|union| {
+                let variants: Vec<_> = union
+                    .variants
+                    .iter()
+                    .map(|(variant, fields)| {
+                        let mut properties = Map::from_iter([
+                            ("$type".into(), json!({"const":name})),
+                            ("$variant".into(), json!({"const":variant})),
+                        ]);
+                        properties.extend(fields.iter().map(|(field, ty)| {
+                            (field.clone(), type_schema(program, ty))
+                        }));
+                        let mut required = vec!["$type", "$variant"];
+                        required.extend(fields.keys().map(String::as_str));
+                        json!({"type":"object","properties":properties,"required":required,"additionalProperties":false})
+                    })
+                    .collect();
+                json!({"oneOf":variants})
+            })
+            .unwrap_or_else(|| json!({})),
         TypeExpr::Enum(name) => {
             json!({"type":"string","enum":program.enums.get(name).cloned().unwrap_or_default()})
         }
@@ -273,13 +319,58 @@ fn value_matches(program: &Program, value: &Value, ty: &TypeExpr) -> bool {
         TypeExpr::String => value.is_string(),
         TypeExpr::Number => value.is_number(),
         TypeExpr::Bool => value.is_boolean(),
+        TypeExpr::Failure => value.as_object().is_some_and(|object| {
+            object.get("kind").is_some_and(Value::is_string)
+                && object.get("message").is_some_and(Value::is_string)
+                && object
+                    .get("operation")
+                    .is_some_and(|value| value.is_null() || value.is_string())
+                && object.get("retryable").is_some_and(Value::is_boolean)
+        }),
         TypeExpr::List(x) => value
             .as_array()
             .is_some_and(|v| v.iter().all(|v| value_matches(program, v, x))),
         TypeExpr::Option(x) => value.is_null() || value_matches(program, value, x),
+        TypeExpr::Result(ok, error) => value.as_object().is_some_and(|object| {
+            object.get("$type").and_then(Value::as_str) == Some("Result")
+                && match object.get("$variant").and_then(Value::as_str) {
+                    Some("Ok") => object
+                        .get("value")
+                        .is_some_and(|value| value_matches(program, value, ok)),
+                    Some("Err") => object
+                        .get("error")
+                        .is_some_and(|value| value_matches(program, value, error)),
+                    _ => false,
+                }
+        }),
         TypeExpr::Obj(fs) => value.as_object().is_some_and(|o| {
             fs.iter()
                 .all(|(k, t)| o.get(k).is_some_and(|v| value_matches(program, v, t)))
+        }),
+        TypeExpr::Record(name) => program.records.get(name).is_some_and(|record| {
+            value.as_object().is_some_and(|object| {
+                record.fields.iter().all(|(field, ty)| {
+                    object
+                        .get(field)
+                        .is_some_and(|value| value_matches(program, value, ty))
+                })
+            })
+        }),
+        TypeExpr::Union(name) => program.unions.get(name).is_some_and(|union| {
+            value.as_object().is_some_and(|object| {
+                object.get("$type").and_then(Value::as_str) == Some(name)
+                    && object
+                        .get("$variant")
+                        .and_then(Value::as_str)
+                        .and_then(|variant| union.variants.get(variant))
+                        .is_some_and(|fields| {
+                            fields.iter().all(|(field, ty)| {
+                                object
+                                    .get(field)
+                                    .is_some_and(|value| value_matches(program, value, ty))
+                            })
+                        })
+            })
         }),
         TypeExpr::Enum(n) => value.as_str().is_some_and(|v| {
             program

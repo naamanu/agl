@@ -1,0 +1,6 @@
+{
+  "source": "valid/union_match.agent",
+  "phase": "execute",
+  "pipeline": "main",
+  "expected": "offline"
+}

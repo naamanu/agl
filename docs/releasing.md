@@ -18,7 +18,7 @@ The manually triggered **Live Provider Smoke** GitHub workflow must pass once fo
 1. Update `CHANGELOG.md` and confirm the version in `Cargo.toml`.
 2. Run the required checks and both live-provider workflows.
 3. Merge the reviewed branch into `main`.
-4. Create an annotated `v0.2.0` tag from the merge commit.
+4. Create an annotated tag matching the version in `Cargo.toml` from the merge commit.
 5. Run `cargo publish --dry-run`, then publish only with explicit maintainer approval.
 6. Create the GitHub release from the tag using the matching changelog section.
 

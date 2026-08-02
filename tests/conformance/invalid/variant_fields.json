@@ -1,0 +1,5 @@
+{
+  "source": "invalid/variant_fields.agent",
+  "phase": "reject",
+  "code": "AGL2001"
+}

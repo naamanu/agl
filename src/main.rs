@@ -1,8 +1,11 @@
 use agl::adapters::tools::default_tool_registry;
 use agl::context::ExecutionContext;
+use agl::diagnostic::{RenderedDiagnostic, render_diagnostic};
 use agl::plugins::load_python_plugin_with_tools;
 use agl::stdlib::{AdapterMode, registry_for_with_tools};
-use agl::{check_program, execute_pipeline, format_pipeline, parse_program, run_tests};
+use agl::{
+    analyze_program, check_program, execute_pipeline, format_pipeline, parse_program, run_tests,
+};
 use clap::Parser;
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -164,16 +167,29 @@ fn load_program(path: &str) -> Result<agl::ast::Program, Box<dyn std::error::Err
     if path.is_empty() {
         return Err("usage: load <path>".into());
     }
-    let program = parse_program(&std::fs::read_to_string(path)?)?;
-    check_program(&program)?;
+    let source = std::fs::read_to_string(path)?;
+    let program = parse_program(&source)
+        .map_err(|error| RenderedDiagnostic(render_diagnostic(path, &source, &error)))?;
+    check_program(&program)
+        .map_err(|error| RenderedDiagnostic(render_diagnostic(path, &source, &error)))?;
     Ok(program)
 }
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     let source = std::fs::read_to_string(&cli.source)?;
-    let program = parse_program(&source)?;
-    check_program(&program)?;
+    let program = parse_program(&source).map_err(|error| {
+        RenderedDiagnostic(render_diagnostic(cli.source.display(), &source, &error))
+    })?;
+    check_program(&program).map_err(|error| {
+        RenderedDiagnostic(render_diagnostic(cli.source.display(), &source, &error))
+    })?;
+    for warning in analyze_program(&program) {
+        eprintln!(
+            "{}",
+            render_diagnostic(cli.source.display(), &source, &warning)
+        );
+    }
     if cli.lower {
         let name = cli.pipeline.ok_or("pipeline is required with --lower")?;
         let pipeline = program

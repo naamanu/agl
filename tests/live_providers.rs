@@ -18,6 +18,7 @@ fn openai_live_completion() {
             system: None,
             max_output_tokens: Some(32),
             reasoning_effort: Some("low"),
+            idempotency_key: None,
         })
         .unwrap();
     assert!(
@@ -43,6 +44,7 @@ fn anthropic_live_completion() {
             system: None,
             max_output_tokens: Some(32),
             reasoning_effort: None,
+            idempotency_key: None,
         })
         .unwrap();
     assert!(

@@ -1,7 +1,7 @@
 use crate::adapters::tools::{ToolRegistry, default_tool_registry, tool_definitions, type_schema};
 use crate::adapters::{AnthropicClient, CompletionRequest, ModelClient, OpenAiClient};
 use crate::ast::{Program, TaskDef, TypeExpr};
-use crate::runtime::Registry;
+use crate::runtime::{Registry, TaskOutput, Usage};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
@@ -171,7 +171,7 @@ fn register_live_task(
 ) {
     let (program, task) = (program.clone(), task.clone());
     let task_name = task.name.clone();
-    registry.register(task_name.clone(), move |args, agent_name| {
+    registry.register_contextual(task_name.clone(), move |args, agent_name, invocation| {
         let agent = agent_name.and_then(|name| program.agents.get(name));
         let model = agent
             .and_then(|agent| agent.deployment.as_ref())
@@ -209,6 +209,7 @@ fn register_live_task(
                 .and_then(|agent| agent.deployment.as_ref())
                 .and_then(|binding| binding.reasoning_effort.as_deref())
                 .or_else(|| (mode == AdapterMode::OpenAi).then_some("medium")),
+            idempotency_key: Some(&invocation.idempotency_key),
         };
         let definitions = agent
             .map(|agent| tool_definitions(&program, &agent.tools))
@@ -231,7 +232,16 @@ fn register_live_task(
             )
         }
         .map_err(|e| e.to_string())?;
-        parse_model_json(&task_name, &raw)
+        let value = parse_model_json(&task_name, &raw)?;
+        Ok(TaskOutput {
+            value,
+            usage: Usage {
+                input_tokens: (prompt.len() as u64).div_ceil(4),
+                output_tokens: (raw.len() as u64).div_ceil(4),
+                cost_usd: 0.0,
+                estimated: true,
+            },
+        })
     });
 }
 

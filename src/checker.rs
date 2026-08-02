@@ -74,6 +74,34 @@ pub fn check_program(p: &Program) -> Result<(), CheckError> {
         let mut env = Env::new();
         block(&x.statements, p, &mut env, false)?;
     }
+    for eval in p.evals.values() {
+        if !p.pipelines.contains_key(&eval.pipeline) {
+            return Err(at(
+                Span { line: 1, col: 1 },
+                format!(
+                    "eval '{}' references unknown pipeline '{}'",
+                    eval.name, eval.pipeline
+                ),
+            ));
+        }
+        if let Some(grader) = &eval.semantic_grader {
+            let Some(pipeline) = p.pipelines.get(grader) else {
+                return Err(at(
+                    Span { line: 1, col: 1 },
+                    format!(
+                        "eval '{}' references unknown semantic grader pipeline '{grader}'",
+                        eval.name
+                    ),
+                ));
+            };
+            if resolve(&pipeline.return_type, p) != TypeExpr::Bool {
+                return Err(at(
+                    Span { line: 1, col: 1 },
+                    format!("semantic grader '{grader}' must return Bool"),
+                ));
+            }
+        }
+    }
     validate_contracts(p)?;
     let inferred = infer_program_effects(p);
     for pipeline in p.pipelines.values() {
@@ -694,6 +722,9 @@ fn run(r: &RunStmt, p: &Program, env: &Env) -> Result<TypeExpr, CheckError> {
             r.span,
             "pipeline calls do not support by/retries/retry_on/on_fail/timeout",
         ));
+    }
+    if r.retry_policy != RetryPolicy::default() && r.retries == 0 {
+        return Err(at(r.span, "backoff requires a positive retries budget"));
     }
     if agent_task && r.agent.is_none() {
         return Err(at(

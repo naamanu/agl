@@ -9,6 +9,7 @@ pub mod checker;
 pub mod context;
 pub mod deployment;
 pub mod diagnostic;
+pub mod evaluation;
 pub mod formatter;
 pub mod lexer;
 pub mod parser;
@@ -21,4 +22,6 @@ pub use checker::{
 };
 pub use formatter::format_pipeline;
 pub use parser::{ParseError, parse_program};
-pub use runtime::{ExecutionError, Registry, execute_pipeline, run_tests};
+pub use runtime::{
+    ExecutionError, Invocation, Registry, TaskOutput, Usage, execute_pipeline, run_tests,
+};

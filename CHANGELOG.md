@@ -1,5 +1,8 @@
 # Changelog
 
+- Add deterministic bounded retry backoff, stable invocation/idempotency keys, contextual handler usage, and scoped pipeline resource budgets for AGL 0.4.
+- Add dataset evaluations, repeated-trial distributions, semantic graders, trace replay, and CI baselines for AGL 0.4.
+
 ## 0.4.0 — Unreleased
 
 - Added transitive effect inference and declared pipeline effect ceilings.

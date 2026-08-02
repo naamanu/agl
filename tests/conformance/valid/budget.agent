@@ -1,0 +1,9 @@
+language "0.4";
+
+task fetch() -> String effects [network] idempotency idempotent {}
+
+pipeline main() -> String
+  budget { time_ms: 1000, tokens: 50, cost_usd: 0.10, tool_calls: 2, retries: 1, concurrency: 1 } {
+  let value = fetch() retries 1 backoff { initial_ms: 5, max_ms: 20, multiplier: 2, jitter: 0 };
+  return value;
+}

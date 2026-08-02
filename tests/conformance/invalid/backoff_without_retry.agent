@@ -1,0 +1,8 @@
+language "0.4";
+
+task fetch() -> String idempotency idempotent {}
+
+pipeline main() -> String {
+  let value = fetch() backoff { initial_ms: 5, max_ms: 10, multiplier: 2, jitter: 0 };
+  return value;
+}

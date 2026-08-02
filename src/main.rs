@@ -2,6 +2,7 @@ use agl::adapters::tools::default_tool_registry;
 use agl::context::ExecutionContext;
 use agl::deployment::DeploymentConfig;
 use agl::diagnostic::{RenderedDiagnostic, render_diagnostic};
+use agl::evaluation::{EvalBaseline, run_evaluation};
 use agl::plugins::load_python_plugin_with_tools;
 use agl::stdlib::{AdapterMode, registry_for_with_tools};
 use agl::{
@@ -38,6 +39,10 @@ struct Cli {
     effects: bool,
     #[arg(long)]
     deployment: Option<PathBuf>,
+    #[arg(long, value_name = "NAME")]
+    eval: Option<String>,
+    #[arg(long, requires = "eval")]
+    update_baseline: bool,
     #[arg(long = "plugin")]
     plugins: Vec<String>,
 }
@@ -238,6 +243,41 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         cli.trace_live,
         &cli.plugins,
     )?;
+    if let Some(name) = &cli.eval {
+        let definition = program
+            .evals
+            .get(name)
+            .ok_or_else(|| format!("unknown evaluation '{name}'"))?;
+        let root = cli
+            .source
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."));
+        let mut runnable = definition.clone();
+        if cli.update_baseline {
+            runnable.baseline = None;
+        }
+        let report = run_evaluation(&program, &runnable, root, &registry)?;
+        if cli.update_baseline {
+            let path = definition
+                .baseline
+                .as_ref()
+                .ok_or("evaluation has no baseline path")?;
+            std::fs::write(
+                root.join(path),
+                serde_json::to_string_pretty(&EvalBaseline::from_report(&report))?,
+            )?;
+        }
+        println!("{}", serde_json::to_string_pretty(&report)?);
+        if report.passed != report.trials {
+            return Err(format!(
+                "evaluation failed {}/{} trials",
+                report.trials - report.passed,
+                report.trials
+            )
+            .into());
+        }
+        return Ok(());
+    }
     let context = ExecutionContext::default();
     if cli.test {
         let results = run_tests(&program, &registry, &context);

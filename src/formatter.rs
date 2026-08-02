@@ -17,8 +17,13 @@ pub fn format_pipeline(pipeline: &PipelineDef) -> String {
             )
         })
         .unwrap_or_default();
+    let budget = pipeline
+        .budget
+        .as_ref()
+        .map(format_budget)
+        .unwrap_or_default();
     let mut lines = vec![format!(
-        "pipeline {}({params}) -> {}{effects} {{",
+        "pipeline {}({params}) -> {}{effects}{budget} {{",
         pipeline.name,
         format_type(&pipeline.return_type)
     )];
@@ -47,6 +52,15 @@ fn statements(items: &[Stmt], indent: &str, lines: &mut Vec<String>) {
                 }
                 if run.retries > 0 {
                     line.push_str(&format!(" retries {}", run.retries));
+                }
+                if run.retry_policy != RetryPolicy::default() {
+                    line.push_str(&format!(
+                        " backoff {{ initial_ms: {}, max_ms: {}, multiplier: {}, jitter: {} }}",
+                        run.retry_policy.initial_ms,
+                        run.retry_policy.max_ms,
+                        run.retry_policy.multiplier,
+                        run.retry_policy.jitter
+                    ));
                 }
                 if !run.retry_on.is_empty() {
                     line.push_str(&format!(
@@ -182,6 +196,29 @@ fn statements(items: &[Stmt], indent: &str, lines: &mut Vec<String>) {
             }
         }
     }
+}
+
+fn format_budget(b: &ResourceBudget) -> String {
+    let mut fields = Vec::new();
+    if let Some(v) = b.time_ms {
+        fields.push(format!("time_ms: {v}"));
+    }
+    if let Some(v) = b.tokens {
+        fields.push(format!("tokens: {v}"));
+    }
+    if let Some(v) = b.cost_usd {
+        fields.push(format!("cost_usd: {v}"));
+    }
+    if let Some(v) = b.tool_calls {
+        fields.push(format!("tool_calls: {v}"));
+    }
+    if let Some(v) = b.retries {
+        fields.push(format!("retries: {v}"));
+    }
+    if let Some(v) = b.concurrency {
+        fields.push(format!("concurrency: {v}"));
+    }
+    format!(" budget {{ {} }}", fields.join(", "))
 }
 
 fn format_type(ty: &TypeExpr) -> String {

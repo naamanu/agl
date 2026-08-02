@@ -25,6 +25,8 @@ cargo run -- <source> <pipeline> [options]
 | `--lower` | off | Print the lowered pipeline IR for the selected pipeline or workflow and exit |
 | `--effects` | off | Print inferred transitive pipeline effects as JSON and exit |
 | `--deployment PATH` | off | Validate and apply provider-neutral agent bindings from JSON |
+| `--eval NAME` | off | Run a declared dataset evaluation and emit a JSON report |
+| `--update-baseline` | off | Replace the selected evaluation's baseline with the current report |
 | `--trace-live` | off | Emit live model/tool tracing to `stderr` when running with `--adapter live` or `--adapter anthropic` |
 | `--output-trace PATH` | off | Write a structured JSON execution trace to `PATH` after execution |
 | `--plugin MODULE` | — | Load a plugin module (Python file path or dotted module name). May be repeated. |

@@ -53,7 +53,9 @@ impl ModelClient for AnthropicClient {
         if let Some(s) = r.system {
             p["system"] = s.into()
         }
-        extract_text(&self.message(p)?).ok_or(AdapterError::MissingText(PROVIDER))
+        let response = self.message(p)?;
+        ensure_complete(&response)?;
+        extract_text(&response).ok_or(AdapterError::MissingText(PROVIDER))
     }
     fn complete_with_tools(
         &self,
@@ -68,6 +70,7 @@ impl ModelClient for AnthropicClient {
         for _ in 0..max_round_trips {
             let uses = tool_uses(&response);
             if uses.is_empty() {
+                ensure_complete(&response)?;
                 return extract_text(&response).ok_or(AdapterError::MissingText(PROVIDER));
             }
             messages.push(json!({"role":"assistant","content":response["content"].clone()}));
@@ -112,6 +115,17 @@ fn extract_text(v: &Value) -> Option<String> {
         .collect();
     (!xs.is_empty()).then(|| xs.join("\n"))
 }
+fn ensure_complete(value: &Value) -> Result<(), AdapterError> {
+    if let Some(reason @ ("max_tokens" | "pause_turn" | "refusal")) =
+        value.get("stop_reason").and_then(Value::as_str)
+    {
+        return Err(AdapterError::Incomplete {
+            provider: PROVIDER,
+            reason: reason.into(),
+        });
+    }
+    Ok(())
+}
 struct ToolUse {
     name: String,
     id: String,
@@ -151,6 +165,7 @@ mod tests {
                     prompt: "go",
                     system: Some("help"),
                     max_output_tokens: None,
+                    reasoning_effort: None,
                 },
                 &[json!({"name":"lookup","parameters":{"type":"object"}})],
                 &|_, _| Ok(json!({"ok":true})),

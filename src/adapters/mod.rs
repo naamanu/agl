@@ -23,6 +23,7 @@ pub struct CompletionRequest<'a> {
     pub prompt: &'a str,
     pub system: Option<&'a str>,
     pub max_output_tokens: Option<u32>,
+    pub reasoning_effort: Option<&'a str>,
 }
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
@@ -39,6 +40,11 @@ pub enum AdapterError {
     InvalidJson(&'static str, String),
     #[error("{0} response contained no text output")]
     MissingText(&'static str),
+    #[error("{provider} response stopped before completion: {reason}")]
+    Incomplete {
+        provider: &'static str,
+        reason: String,
+    },
     #[error("{provider} tool call for '{tool}' returned {problem}")]
     InvalidToolCall {
         provider: &'static str,

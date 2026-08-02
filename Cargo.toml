@@ -15,7 +15,10 @@ include = [
   "src/**",
   "tests/**",
   "examples/**",
+  "benches/**",
+  "docs/**",
   "README.md",
+  "CHANGELOG.md",
   "LICENSE",
 ]
 
@@ -38,3 +41,7 @@ url = "2"
 
 [dev-dependencies]
 pretty_assertions = "1"
+
+[[bench]]
+name = "runtime"
+harness = false

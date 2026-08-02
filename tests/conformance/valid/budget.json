@@ -1,0 +1,6 @@
+{
+  "source": "valid/budget.agent",
+  "phase": "lower",
+  "pipeline": "main",
+  "contains": "budget { time_ms: 1000, tokens: 50, cost_usd: 0.1, tool_calls: 2, retries: 1, concurrency: 1 }"
+}

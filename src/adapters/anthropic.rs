@@ -53,6 +53,9 @@ impl ModelClient for AnthropicClient {
         if let Some(s) = r.system {
             p["system"] = s.into()
         }
+        if let Some(key) = r.idempotency_key {
+            p["metadata"] = json!({"user_id":key});
+        }
         let response = self.message(p)?;
         ensure_complete(&response)?;
         extract_text(&response).ok_or(AdapterError::MissingText(PROVIDER))
@@ -97,6 +100,9 @@ fn message_payload(r: &CompletionRequest<'_>, messages: &[Value], tools: &[Value
     let mut p = json!({"model":r.model,"messages":messages,"tools":tools,"max_tokens":r.max_output_tokens.unwrap_or(1024)});
     if let Some(s) = r.system {
         p["system"] = s.into()
+    }
+    if let Some(key) = r.idempotency_key {
+        p["metadata"] = json!({"user_id":key});
     }
     p
 }
@@ -166,6 +172,7 @@ mod tests {
                     system: Some("help"),
                     max_output_tokens: None,
                     reasoning_effort: None,
+                    idempotency_key: Some("invoke-1"),
                 },
                 &[json!({"name":"lookup","parameters":{"type":"object"}})],
                 &|_, _| Ok(json!({"ok":true})),

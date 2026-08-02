@@ -24,6 +24,7 @@ pub struct CompletionRequest<'a> {
     pub system: Option<&'a str>,
     pub max_output_tokens: Option<u32>,
     pub reasoning_effort: Option<&'a str>,
+    pub idempotency_key: Option<&'a str>,
 }
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]

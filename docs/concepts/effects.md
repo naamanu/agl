@@ -37,3 +37,5 @@ Pipeline effects are transitive through task, agent-tool, and pipeline calls. An
 `pure`, `idempotent`, `keyed_by`, and `non_idempotent` document whether repeated execution is safe. A retried external write must be idempotent or keyed. The key parameter must be a `String`.
 
 `retry_on` remains orthogonal: it selects which typed domain errors cause another attempt, while idempotency determines whether another attempt is safe at all.
+
+See [Retries, invocation identity, and budgets](retries-and-budgets.md) for backoff, stable keys, usage accounting, and scoped limits.

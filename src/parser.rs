@@ -176,6 +176,11 @@ impl Parser {
                 "union" => self.union_def()?,
                 "enum" => self.enum_def()?,
                 "test" => self.test_block()?,
+                "eval" => {
+                    let eval = self.eval_def()?;
+                    unique(&self.program.evals, &eval.name, "eval")?;
+                    self.program.evals.insert(eval.name.clone(), eval);
+                }
                 _ => {
                     return Err(
                         self.error(format!("unexpected top-level token {:?}", self.cur().text))
@@ -211,6 +216,77 @@ impl Parser {
             return Err(ParseError::Semantic(format!("duplicate type alias: {n}")));
         }
         Ok(())
+    }
+
+    fn eval_def(&mut self) -> Result<EvalDef, ParseError> {
+        self.require_04("evaluation declarations")?;
+        self.expect("eval")?;
+        let name = self.ident()?.text;
+        self.expect("{")?;
+        let mut pipeline = None;
+        let mut dataset = None;
+        let mut trials = 1;
+        let mut baseline = None;
+        let mut assert_schema = true;
+        let mut assert_expected = false;
+        let mut max_latency_ms = None;
+        let mut max_cost_usd = None;
+        let mut semantic_grader = None;
+        let mut seen = BTreeSet::new();
+        while !self.at("}") {
+            if self.take(",") {
+                continue;
+            }
+            let key = self.bump().text;
+            if !seen.insert(key.clone()) {
+                return Err(ParseError::Semantic(format!(
+                    "duplicate eval field '{key}'"
+                )));
+            }
+            self.expect(":")?;
+            match key.as_str() {
+                "pipeline" | "pipeline_name" => pipeline = Some(self.ident()?.text),
+                "dataset" => dataset = Some(self.string()?.text),
+                "trials" => {
+                    trials = self.integer("trials")?;
+                    if trials == 0 {
+                        return Err(ParseError::Semantic("eval trials must be positive".into()));
+                    }
+                }
+                "baseline" => baseline = Some(self.string()?.text),
+                "assert_schema" => assert_schema = self.boolean()?,
+                "assert_expected" => assert_expected = self.boolean()?,
+                "max_latency_ms" => max_latency_ms = Some(self.integer("max_latency_ms")? as u64),
+                "max_cost_usd" => max_cost_usd = Some(self.number()?.text.parse().unwrap()),
+                "semantic_grader" => semantic_grader = Some(self.ident()?.text),
+                _ => return Err(ParseError::Semantic(format!("unknown eval field '{key}'"))),
+            }
+        }
+        self.expect("}")?;
+        Ok(EvalDef {
+            name,
+            pipeline: pipeline
+                .ok_or_else(|| ParseError::Semantic("eval must name a pipeline".into()))?,
+            dataset: dataset
+                .ok_or_else(|| ParseError::Semantic("eval must name a dataset".into()))?,
+            trials,
+            baseline,
+            assert_schema,
+            assert_expected,
+            max_latency_ms,
+            max_cost_usd,
+            semantic_grader,
+        })
+    }
+
+    fn boolean(&mut self) -> Result<bool, ParseError> {
+        if self.take("true") {
+            Ok(true)
+        } else if self.take("false") {
+            Ok(false)
+        } else {
+            Err(self.error("expected boolean".into()))
+        }
     }
     fn enum_def(&mut self) -> Result<(), ParseError> {
         self.expect("enum")?;
@@ -563,19 +639,84 @@ impl Parser {
         let params = self.signature_params()?;
         self.expect("->")?;
         let return_type = self.ty()?;
-        let effects = if self.at("effects") {
-            Some(self.effect_set()?)
-        } else {
-            None
-        };
+        let mut effects = None;
+        let mut budget = None;
+        while !self.at("{") {
+            if self.at("effects") {
+                if effects.replace(self.effect_set()?).is_some() {
+                    return Err(ParseError::Semantic("duplicate pipeline effects".into()));
+                }
+            } else if self.at("budget") {
+                if budget.replace(self.resource_budget()?).is_some() {
+                    return Err(ParseError::Semantic("duplicate pipeline budget".into()));
+                }
+            } else {
+                return Err(self.error("unexpected pipeline clause".into()));
+            }
+        }
         let statements = self.block()?;
         Ok(PipelineDef {
             name,
             params,
             return_type,
             effects,
+            budget,
             statements,
         })
+    }
+
+    fn resource_budget(&mut self) -> Result<ResourceBudget, ParseError> {
+        self.require_04("resource budgets")?;
+        self.expect("budget")?;
+        self.expect("{")?;
+        let mut budget = ResourceBudget::default();
+        let mut seen = BTreeSet::new();
+        while !self.at("}") {
+            let key = self.bump().text;
+            if !matches!(
+                key.as_str(),
+                "time_ms" | "tokens" | "cost_usd" | "tool_calls" | "retries" | "concurrency"
+            ) {
+                return Err(self.error(format!("unknown budget resource '{key}'")));
+            }
+            if !seen.insert(key.clone()) {
+                return Err(ParseError::Semantic(format!(
+                    "duplicate budget resource '{key}'"
+                )));
+            }
+            self.expect(":")?;
+            if key == "cost_usd" {
+                let value = self.number()?.text.parse::<f64>().unwrap();
+                if value < 0.0 {
+                    return Err(ParseError::Semantic(
+                        "cost_usd budget cannot be negative".into(),
+                    ));
+                }
+                budget.cost_usd = Some(value);
+            } else {
+                let value = self.integer(&key)? as u64;
+                match key.as_str() {
+                    "time_ms" => budget.time_ms = Some(value),
+                    "tokens" => budget.tokens = Some(value),
+                    "tool_calls" => budget.tool_calls = Some(value),
+                    "retries" => budget.retries = Some(value),
+                    "concurrency" => {
+                        if value == 0 {
+                            return Err(ParseError::Semantic(
+                                "concurrency budget must be positive".into(),
+                            ));
+                        }
+                        budget.concurrency = Some(value)
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            if !self.take(",") {
+                break;
+            }
+        }
+        self.expect("}")?;
+        Ok(budget)
     }
 
     fn effect_set(&mut self) -> Result<BTreeSet<String>, ParseError> {
@@ -995,12 +1136,13 @@ impl Parser {
         }
         let (mut agent, mut retries, mut on_fail, mut timeout) = (None, 0, OnFail::Abort, None);
         let mut retry_on = Vec::new();
+        let mut retry_policy = RetryPolicy::default();
         let mut seen = BTreeSet::new();
         loop {
             let clause = self.cur().text.clone();
             if !matches!(
                 clause.as_str(),
-                "by" | "retries" | "retry_on" | "on_fail" | "timeout"
+                "by" | "retries" | "retry_on" | "backoff" | "on_fail" | "timeout"
             ) {
                 break;
             }
@@ -1031,6 +1173,51 @@ impl Parser {
                     }
                     self.expect("]")?;
                 }
+                "backoff" => {
+                    self.require_04("retry backoff")?;
+                    self.expect("{")?;
+                    let mut fields = BTreeSet::new();
+                    while !self.at("}") {
+                        let key = self.bump().text;
+                        if !fields.insert(key.clone()) {
+                            return Err(ParseError::Semantic(format!(
+                                "duplicate backoff field '{key}'"
+                            )));
+                        }
+                        self.expect(":")?;
+                        let value = self.number()?.text.parse::<f64>().unwrap();
+                        match key.as_str() {
+                            "initial_ms" => retry_policy.initial_ms = value as u64,
+                            "max_ms" => retry_policy.max_ms = value as u64,
+                            "multiplier" if value >= 1.0 => retry_policy.multiplier = value,
+                            "jitter" if (0.0..=1.0).contains(&value) => retry_policy.jitter = value,
+                            "multiplier" => {
+                                return Err(ParseError::Semantic(
+                                    "backoff multiplier must be at least 1".into(),
+                                ));
+                            }
+                            "jitter" => {
+                                return Err(ParseError::Semantic(
+                                    "backoff jitter must be between 0 and 1".into(),
+                                ));
+                            }
+                            _ => {
+                                return Err(ParseError::Semantic(format!(
+                                    "unknown backoff field '{key}'"
+                                )));
+                            }
+                        }
+                        if !self.take(",") {
+                            break;
+                        }
+                    }
+                    self.expect("}")?;
+                    if retry_policy.max_ms < retry_policy.initial_ms {
+                        return Err(ParseError::Semantic(
+                            "backoff max_ms must be at least initial_ms".into(),
+                        ));
+                    }
+                }
                 "on_fail" => {
                     if self.take("abort") {
                         on_fail = OnFail::Abort
@@ -1055,6 +1242,7 @@ impl Parser {
             args,
             agent,
             retries,
+            retry_policy,
             retry_on,
             on_fail,
             timeout,
@@ -1416,6 +1604,7 @@ impl Parser {
                             args: named,
                             agent: Some(agent),
                             retries: 0,
+                            retry_policy: RetryPolicy::default(),
                             retry_on: Vec::new(),
                             on_fail: OnFail::Abort,
                             timeout: None,
@@ -1497,6 +1686,7 @@ impl Parser {
                             args: review_args,
                             agent: Some(reviewer.clone()),
                             retries: 0,
+                            retry_policy: RetryPolicy::default(),
                             retry_on: Vec::new(),
                             on_fail: OnFail::Abort,
                             timeout: None,
@@ -1514,6 +1704,7 @@ impl Parser {
                             )]),
                             agent: None,
                             retries: 0,
+                            retry_policy: RetryPolicy::default(),
                             retry_on: Vec::new(),
                             on_fail: OnFail::Abort,
                             timeout: None,
@@ -1571,6 +1762,7 @@ impl Parser {
                                 args: revise_args,
                                 agent: Some(reviser),
                                 retries: 0,
+                                retry_policy: RetryPolicy::default(),
                                 retry_on: Vec::new(),
                                 on_fail: OnFail::Abort,
                                 timeout: None,
@@ -1582,6 +1774,7 @@ impl Parser {
                                 args: repeated_review_args,
                                 agent: Some(reviewer),
                                 retries: 0,
+                                retry_policy: RetryPolicy::default(),
                                 retry_on: Vec::new(),
                                 on_fail: OnFail::Abort,
                                 timeout: None,
@@ -1599,6 +1792,7 @@ impl Parser {
                                 )]),
                                 agent: None,
                                 retries: 0,
+                                retry_policy: RetryPolicy::default(),
                                 retry_on: Vec::new(),
                                 on_fail: OnFail::Abort,
                                 timeout: None,
@@ -1635,6 +1829,7 @@ impl Parser {
                     params: w.params,
                     return_type: w.return_type,
                     effects: None,
+                    budget: None,
                     statements: body,
                 },
             );

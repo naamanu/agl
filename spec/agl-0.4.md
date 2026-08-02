@@ -51,7 +51,9 @@ idempotency non_idempotent
 
 The checker rejects retries of `non_idempotent` tasks. A task with `external_write` is retryable only when pure, idempotent, or keyed. The same rule applies when an agent can invoke an external-write tool during a retried task.
 
-These checks are static promises: hosts must implement the declared idempotency behavior. Future stable extension contracts carry the resolved key to handlers and adapters.
+These checks are static promises: hosts must implement the declared idempotency behavior. Each logical invocation receives stable execution, invocation, and idempotency IDs. Attempts of the same invocation reuse those values.
+
+An optional `backoff { initial_ms, max_ms, multiplier, jitter }` clause specifies bounded exponential retry delay. `multiplier` is at least one and `jitter` is in `[0, 1]`. Jitter is derived from the execution seed, invocation ID, and attempt so deterministic contexts reproduce it exactly.
 
 ## 3. Agent requirements and deployment
 
@@ -73,6 +75,20 @@ Provider, model, endpoint, reasoning effort, supplied capabilities, context wind
 
 The source `model` field remains an explicit compatibility escape hatch when no deployment is supplied. Deployment model and reasoning settings take precedence over environment and source defaults. A deployment contains configuration, never API credentials.
 
-## 4. Compatibility
+## 4. Resource budgets
+
+A pipeline may declare `budget { ... }` with any of `time_ms`, `tokens`, `cost_usd`, `tool_calls`, `retries`, and `concurrency`. Limits are non-negative; concurrency is positive. Counters are scoped to that pipeline execution and atomically shared by parallel branches. A nested pipeline creates a nested scope.
+
+Calls and retries are reserved before work begins. Provider usage is charged after an adapter result. Time is checked at orchestration boundaries. Crossing a ceiling raises a structured, non-retryable `Failure` whose kind is `budget` and whose operation identifies the exhausted resource.
+
+Trace events contain invocation identity, retry delay, and provider usage. Usage may be actual or estimated and adapters identify which in extension-level metadata.
+
+## 5. Evaluation
+
+An `eval` declaration names a pipeline, JSONL dataset, positive trial count, and optional baseline. Assertions include runtime return-schema validation, exact expected-value predicates, maximum latency, maximum cost, and a `Bool`-returning semantic-grader pipeline. Each dataset row supplies an input object and optional expected value.
+
+Evaluation uses a deterministic seed per case and trial. Implementations report pass rate and latency/cost distributions. Recorded `task_result` events can construct replay handlers, so replay never contacts providers. A baseline sets minimum pass rate and maximum mean latency and cost; crossing a baseline is an evaluation failure.
+
+## 6. Compatibility
 
 Effect and idempotency clauses require `language "0.4";`. Existing 0.2 and 0.3 declarations retain their unspecified contracts. Pipelines without explicit effect ceilings continue to compile through inference.

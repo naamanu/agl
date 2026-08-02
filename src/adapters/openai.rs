@@ -62,6 +62,9 @@ impl ModelClient for OpenAiClient {
         if let Some(effort) = request.reasoning_effort {
             payload["reasoning"] = json!({"effort":effort});
         }
+        if let Some(key) = request.idempotency_key {
+            payload["metadata"] = json!({"agl_idempotency_key":key});
+        }
         let response = self.response(payload)?;
         ensure_complete(&response)?;
         extract_text(&response).ok_or(AdapterError::MissingText(PROVIDER))
@@ -80,6 +83,9 @@ impl ModelClient for OpenAiClient {
         }
         if let Some(effort) = request.reasoning_effort {
             payload["reasoning"] = json!({"effort":effort});
+        }
+        if let Some(key) = request.idempotency_key {
+            payload["metadata"] = json!({"agl_idempotency_key":key});
         }
         let mut response = self.response(payload)?;
         for _ in 0..max_round_trips {
@@ -113,6 +119,9 @@ impl ModelClient for OpenAiClient {
             }
             if let Some(effort) = request.reasoning_effort {
                 next["reasoning"] = json!({"effort":effort});
+            }
+            if let Some(key) = request.idempotency_key {
+                next["metadata"] = json!({"agl_idempotency_key":key});
             }
             response = self.response(next)?;
         }
@@ -218,6 +227,7 @@ mod tests {
                     system: None,
                     max_output_tokens: None,
                     reasoning_effort: Some("medium"),
+                    idempotency_key: Some("invoke-1"),
                 },
                 &[json!({"type":"function","name":"lookup","parameters":{"type":"object"}})],
                 &|name, args| Ok(json!({"name":name,"q":args["q"]})),

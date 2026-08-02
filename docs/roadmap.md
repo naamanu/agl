@@ -107,8 +107,8 @@ Acceptance criteria:
 - [x] Declare tasks and tools as pure, idempotent, keyed-idempotent, or non-idempotent.
 - [x] Reject unsafe retry policies on side-effecting non-idempotent tasks and agent tools.
 - [x] Support retry predicates over typed failures.
-- [ ] Add bounded exponential backoff and jitter policies with deterministic test control.
-- [ ] Attach stable invocation and idempotency keys to traces and adapter calls.
+- [x] Add bounded exponential backoff and jitter policies with deterministic test control.
+- [x] Attach stable invocation and idempotency keys to traces and adapter calls.
 
 ### Provider-independent agents
 
@@ -120,18 +120,18 @@ Acceptance criteria:
 
 ### Resource budgets
 
-- [ ] Add scoped budgets for time, tokens, cost, tool calls, retries, and concurrency.
-- [ ] Define reservation and accounting semantics for parallel work.
-- [ ] Return typed budget-exhaustion outcomes.
-- [ ] Record provider usage and estimated/actual cost in traces.
+- [x] Add scoped budgets for time, tokens, cost, tool calls, retries, and concurrency.
+- [x] Define reservation and accounting semantics for parallel work.
+- [x] Return typed budget-exhaustion outcomes.
+- [x] Record provider usage and estimated/actual cost in traces.
 
 ### Evaluation
 
-- [ ] Extend `test` with deterministic model/tool mocks and recorded replay.
-- [ ] Add dataset-driven `eval` declarations.
-- [ ] Support schema, predicate, latency, cost, and semantic-grader assertions.
-- [ ] Run repeated trials and report distributions for nondeterministic evaluations.
-- [ ] Compare evaluation results against a checked-in baseline in CI.
+- [x] Extend `test` with deterministic model/tool mocks and recorded replay.
+- [x] Add dataset-driven `eval` declarations.
+- [x] Support schema, predicate, latency, cost, and semantic-grader assertions.
+- [x] Run repeated trials and report distributions for nondeterministic evaluations.
+- [x] Compare evaluation results against a checked-in baseline in CI.
 
 Acceptance criteria:
 

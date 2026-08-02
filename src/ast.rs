@@ -102,10 +102,30 @@ pub struct RunStmt {
     pub args: BTreeMap<String, Expr>,
     pub agent: Option<String>,
     pub retries: u32,
+    pub retry_policy: RetryPolicy,
     pub retry_on: Vec<(String, String)>,
     pub on_fail: OnFail,
     pub timeout: Option<f64>,
     pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RetryPolicy {
+    pub initial_ms: u64,
+    pub max_ms: u64,
+    pub multiplier: f64,
+    pub jitter: f64,
+}
+
+impl Default for RetryPolicy {
+    fn default() -> Self {
+        Self {
+            initial_ms: 0,
+            max_ms: 30_000,
+            multiplier: 2.0,
+            jitter: 0.0,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -267,12 +287,37 @@ pub struct PipelineDef {
     pub params: Vec<Param>,
     pub return_type: TypeExpr,
     pub effects: Option<BTreeSet<String>>,
+    pub budget: Option<ResourceBudget>,
     pub statements: Vec<Stmt>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ResourceBudget {
+    pub time_ms: Option<u64>,
+    pub tokens: Option<u64>,
+    pub cost_usd: Option<f64>,
+    pub tool_calls: Option<u64>,
+    pub retries: Option<u64>,
+    pub concurrency: Option<u64>,
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TestBlock {
     pub name: String,
     pub statements: Vec<Stmt>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EvalDef {
+    pub name: String,
+    pub pipeline: String,
+    pub dataset: String,
+    pub trials: u32,
+    pub baseline: Option<String>,
+    pub assert_schema: bool,
+    pub assert_expected: bool,
+    pub max_latency_ms: Option<u64>,
+    pub max_cost_usd: Option<f64>,
+    pub semantic_grader: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -287,6 +332,7 @@ pub struct Program {
     pub unions: BTreeMap<String, UnionDef>,
     pub enums: BTreeMap<String, Vec<String>>,
     pub tests: Vec<TestBlock>,
+    pub evals: BTreeMap<String, EvalDef>,
 }
 
 impl Default for Program {
@@ -302,6 +348,7 @@ impl Default for Program {
             unions: BTreeMap::new(),
             enums: BTreeMap::new(),
             tests: Vec::new(),
+            evals: BTreeMap::new(),
         }
     }
 }

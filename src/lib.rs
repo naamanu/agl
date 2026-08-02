@@ -15,7 +15,9 @@ pub mod plugins;
 pub mod runtime;
 pub mod stdlib;
 
-pub use checker::{AnalysisWarning, CheckError, analyze_program, check_program};
+pub use checker::{
+    AnalysisWarning, CheckError, analyze_program, check_program, infer_program_effects,
+};
 pub use formatter::format_pipeline;
 pub use parser::{ParseError, parse_program};
 pub use runtime::{ExecutionError, Registry, execute_pipeline, run_tests};

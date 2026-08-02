@@ -453,3 +453,15 @@ Typed `Err` values are ordinary results. They do not take an execution-error tra
 ### Total return paths
 
 AGL 0.3 strengthens pipeline well-typedness: every reachable continuation must terminate in a compatible `return`. A conditional is terminating only when both branches terminate; an exhaustive match is terminating only when all arms terminate; loops are conservatively non-terminating for this analysis because their body may execute zero times.
+
+---
+
+## 6. AGL 0.4 effect judgments
+
+Let $\Phi(d)$ be the declared direct effect set of task or tool $d$. Agent execution adds `model`; an agent's available tools add their declared effects. Pipeline effect inference is the least fixed point of:
+
+$$\Phi(W)=\bigcup_{r\in runs(W)}\left(\Phi(r)\cup\Phi(callee(r))\right)$$
+
+For a pipeline with declared ceiling $C$, well-typedness additionally requires $\Phi(W)\subseteq C$.
+
+Let $safe(i)$ hold for idempotency contracts `pure`, `idempotent`, and `keyed_by`. A retried call with effect `external_write` is well typed only when $safe(i)$ holds. A call explicitly declared `non_idempotent` is never retryable. When the call is agent-bound, this condition also applies to every available tool carrying `external_write`.

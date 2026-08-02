@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
-pub const CURRENT_LANGUAGE_VERSION: &str = "0.3";
-pub const SUPPORTED_LANGUAGE_VERSIONS: &[&str] = &["0.2", "0.3"];
+pub const CURRENT_LANGUAGE_VERSION: &str = "0.4";
+pub const SUPPORTED_LANGUAGE_VERSIONS: &[&str] = &["0.2", "0.3", "0.4"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Span {
@@ -203,12 +203,25 @@ pub struct TaskDef {
     pub params: Vec<Param>,
     pub return_type: TypeExpr,
     pub agent_task: bool,
+    pub effects: BTreeSet<String>,
+    pub idempotency: Idempotency,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolDef {
     pub name: String,
     pub params: Vec<Param>,
     pub return_type: TypeExpr,
+    pub effects: BTreeSet<String>,
+    pub idempotency: Idempotency,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum Idempotency {
+    Pure,
+    Idempotent,
+    KeyedBy(String),
+    NonIdempotent,
+    #[default]
+    Unspecified,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RecordDef {
@@ -225,6 +238,7 @@ pub struct PipelineDef {
     pub name: String,
     pub params: Vec<Param>,
     pub return_type: TypeExpr,
+    pub effects: Option<BTreeSet<String>>,
     pub statements: Vec<Stmt>,
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

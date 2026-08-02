@@ -192,7 +192,7 @@ impl Parser {
         if !SUPPORTED_LANGUAGE_VERSIONS.contains(&version.as_str()) {
             return Err(ParseError::UnsupportedVersion {
                 version,
-                supported: "0.2, 0.3",
+                supported: "0.2, 0.3, 0.4",
                 line: span.line,
                 col: span.col,
             });
@@ -420,12 +420,28 @@ impl Parser {
         let params = self.signature_params()?;
         self.expect("->")?;
         let return_type = self.ty()?;
-        let agent_task = if self.take("by") {
-            self.expect("agent")?;
-            true
-        } else {
-            false
-        };
+        let mut agent_task = false;
+        let mut effects = BTreeSet::new();
+        let mut idempotency = Idempotency::Unspecified;
+        let mut seen = BTreeSet::new();
+        while !self.at("{") {
+            let clause = self.cur().text.clone();
+            if !seen.insert(clause.clone()) {
+                return Err(ParseError::Semantic(format!(
+                    "duplicate task clause '{clause}'"
+                )));
+            }
+            match clause.as_str() {
+                "by" => {
+                    self.bump();
+                    self.expect("agent")?;
+                    agent_task = true;
+                }
+                "effects" => effects = self.effect_set()?,
+                "idempotency" => idempotency = self.idempotency()?,
+                _ => return Err(self.error("unexpected task clause".into())),
+            }
+        }
         self.expect("{")?;
         self.expect("}")?;
         Ok(TaskDef {
@@ -433,6 +449,8 @@ impl Parser {
             params,
             return_type,
             agent_task,
+            effects,
+            idempotency,
         })
     }
     fn tool(&mut self) -> Result<ToolDef, ParseError> {
@@ -441,12 +459,30 @@ impl Parser {
         let params = self.signature_params()?;
         self.expect("->")?;
         let return_type = self.ty()?;
+        let mut effects = BTreeSet::new();
+        let mut idempotency = Idempotency::Unspecified;
+        let mut seen = BTreeSet::new();
+        while !self.at("{") {
+            let clause = self.cur().text.clone();
+            if !seen.insert(clause.clone()) {
+                return Err(ParseError::Semantic(format!(
+                    "duplicate tool clause '{clause}'"
+                )));
+            }
+            match clause.as_str() {
+                "effects" => effects = self.effect_set()?,
+                "idempotency" => idempotency = self.idempotency()?,
+                _ => return Err(self.error("unexpected tool clause".into())),
+            }
+        }
         self.expect("{")?;
         self.expect("}")?;
         Ok(ToolDef {
             name,
             params,
             return_type,
+            effects,
+            idempotency,
         })
     }
     fn pipeline(&mut self) -> Result<PipelineDef, ParseError> {
@@ -455,13 +491,64 @@ impl Parser {
         let params = self.signature_params()?;
         self.expect("->")?;
         let return_type = self.ty()?;
+        let effects = if self.at("effects") {
+            Some(self.effect_set()?)
+        } else {
+            None
+        };
         let statements = self.block()?;
         Ok(PipelineDef {
             name,
             params,
             return_type,
+            effects,
             statements,
         })
+    }
+
+    fn effect_set(&mut self) -> Result<BTreeSet<String>, ParseError> {
+        if self.program.language_version != "0.4" {
+            return Err(ParseError::Semantic(
+                "effect declarations require language \"0.4\"".into(),
+            ));
+        }
+        self.expect("effects")?;
+        self.expect("[")?;
+        let mut effects = BTreeSet::new();
+        while !self.at("]") {
+            let effect = if self.cur().kind == Kind::Id || self.at("model") {
+                self.bump().text
+            } else {
+                return Err(self.error("expected effect name".into()));
+            };
+            if !effects.insert(effect.clone()) {
+                return Err(ParseError::Semantic(format!("duplicate effect '{effect}'")));
+            }
+            if !self.take(",") {
+                break;
+            }
+        }
+        self.expect("]")?;
+        Ok(effects)
+    }
+
+    fn idempotency(&mut self) -> Result<Idempotency, ParseError> {
+        if self.program.language_version != "0.4" {
+            return Err(ParseError::Semantic(
+                "idempotency declarations require language \"0.4\"".into(),
+            ));
+        }
+        self.expect("idempotency")?;
+        if self.take("pure") {
+            Ok(Idempotency::Pure)
+        } else if self.take("idempotent") {
+            Ok(Idempotency::Idempotent)
+        } else if self.take("non_idempotent") {
+            Ok(Idempotency::NonIdempotent)
+        } else {
+            self.expect("keyed_by")?;
+            Ok(Idempotency::KeyedBy(self.ident()?.text))
+        }
     }
     fn workflow(&mut self) -> Result<Workflow, ParseError> {
         self.expect("workflow")?;
@@ -1191,6 +1278,8 @@ impl Parser {
                     ("next".into(), TypeExpr::Number),
                 ])),
                 agent_task: false,
+                effects: BTreeSet::new(),
+                idempotency: Idempotency::Pure,
             };
             match self.program.tasks.get("countdown") {
                 None => {
@@ -1471,6 +1560,7 @@ impl Parser {
                     name: w.name,
                     params: w.params,
                     return_type: w.return_type,
+                    effects: None,
                     statements: body,
                 },
             );

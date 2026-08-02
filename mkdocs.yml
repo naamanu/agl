@@ -47,6 +47,7 @@ nav:
       - The Type System: concepts/types.md
       - Parallel Execution: concepts/parallel.md
       - Retry & Fallback: concepts/retry.md
+      - Effects & Idempotency: concepts/effects.md
       - Error Handling: concepts/error-handling.md
       - Testing: concepts/testing.md
       - Plugins: concepts/plugins.md

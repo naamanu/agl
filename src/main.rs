@@ -4,7 +4,8 @@ use agl::diagnostic::{RenderedDiagnostic, render_diagnostic};
 use agl::plugins::load_python_plugin_with_tools;
 use agl::stdlib::{AdapterMode, registry_for_with_tools};
 use agl::{
-    analyze_program, check_program, execute_pipeline, format_pipeline, parse_program, run_tests,
+    analyze_program, check_program, execute_pipeline, format_pipeline, infer_program_effects,
+    parse_program, run_tests,
 };
 use clap::Parser;
 use serde_json::Value;
@@ -32,6 +33,8 @@ struct Cli {
     trace_live: bool,
     #[arg(long)]
     lower: bool,
+    #[arg(long)]
+    effects: bool,
     #[arg(long = "plugin")]
     plugins: Vec<String>,
 }
@@ -189,6 +192,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             "{}",
             render_diagnostic(cli.source.display(), &source, &warning)
         );
+    }
+    if cli.effects {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&infer_program_effects(&program))?
+        );
+        return Ok(());
     }
     if cli.lower {
         let name = cli.pipeline.ok_or("pipeline is required with --lower")?;

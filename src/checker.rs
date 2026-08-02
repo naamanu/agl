@@ -74,7 +74,192 @@ pub fn check_program(p: &Program) -> Result<(), CheckError> {
         let mut env = Env::new();
         block(&x.statements, p, &mut env, false)?;
     }
+    validate_contracts(p)?;
+    let inferred = infer_program_effects(p);
+    for pipeline in p.pipelines.values() {
+        if let Some(declared) = &pipeline.effects {
+            let missing: Vec<_> = inferred[&pipeline.name]
+                .difference(declared)
+                .cloned()
+                .collect();
+            if !missing.is_empty() {
+                return Err(at(
+                    pipeline
+                        .statements
+                        .first()
+                        .map(Stmt::span)
+                        .unwrap_or(Span { line: 1, col: 1 }),
+                    format!(
+                        "pipeline '{}' does not permit inferred effects {missing:?}",
+                        pipeline.name
+                    ),
+                ));
+            }
+        }
+    }
     Ok(())
+}
+
+fn validate_contracts(program: &Program) -> Result<(), CheckError> {
+    for task in program.tasks.values() {
+        validate_contract(
+            "task",
+            &task.name,
+            &task.params,
+            &task.effects,
+            &task.idempotency,
+            program,
+        )?;
+    }
+    for tool in program.tools.values() {
+        validate_contract(
+            "tool",
+            &tool.name,
+            &tool.params,
+            &tool.effects,
+            &tool.idempotency,
+            program,
+        )?;
+    }
+    Ok(())
+}
+
+fn validate_contract(
+    kind: &str,
+    name: &str,
+    params: &[Param],
+    effects: &std::collections::BTreeSet<String>,
+    idempotency: &Idempotency,
+    program: &Program,
+) -> Result<(), CheckError> {
+    let span = Span { line: 1, col: 1 };
+    if matches!(idempotency, Idempotency::Pure) && !effects.is_empty() {
+        return Err(at(
+            span,
+            format!("pure {kind} '{name}' cannot declare effects"),
+        ));
+    }
+    if let Idempotency::KeyedBy(parameter) = idempotency {
+        let Some(param) = params.iter().find(|param| &param.name == parameter) else {
+            return Err(at(
+                span,
+                format!("{kind} '{name}' has no idempotency parameter '{parameter}'"),
+            ));
+        };
+        if resolve(&param.ty, program) != TypeExpr::String {
+            return Err(at(
+                span,
+                format!("idempotency key '{parameter}' on {kind} '{name}' must be String"),
+            ));
+        }
+    }
+    Ok(())
+}
+
+pub fn infer_program_effects(
+    program: &Program,
+) -> BTreeMap<String, std::collections::BTreeSet<String>> {
+    let mut effects: BTreeMap<_, _> = program
+        .pipelines
+        .iter()
+        .map(|(name, pipeline)| {
+            let mut direct = std::collections::BTreeSet::new();
+            collect_direct_effects(&pipeline.statements, program, &mut direct);
+            (name.clone(), direct)
+        })
+        .collect();
+    for _ in 0..=program.pipelines.len() {
+        let previous = effects.clone();
+        let mut changed = false;
+        for (name, pipeline) in &program.pipelines {
+            let mut callees = std::collections::BTreeSet::new();
+            collect_pipeline_calls(&pipeline.statements, program, &mut callees);
+            let target = effects.get_mut(name).unwrap();
+            for callee in callees {
+                if let Some(inherited) = previous.get(&callee) {
+                    let before = target.len();
+                    target.extend(inherited.iter().cloned());
+                    changed |= target.len() != before;
+                }
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    effects
+}
+
+fn collect_direct_effects(
+    statements: &[Stmt],
+    program: &Program,
+    effects: &mut std::collections::BTreeSet<String>,
+) {
+    visit_runs(statements, &mut |run| {
+        let Some(task) = program.tasks.get(&run.callable) else {
+            return;
+        };
+        effects.extend(task.effects.iter().cloned());
+        if task.agent_task || run.agent.is_some() {
+            effects.insert("model".into());
+        }
+        if let Some(agent) = run.agent.as_ref().and_then(|name| program.agents.get(name)) {
+            for tool in &agent.tools {
+                if let Some(tool) = program.tools.get(tool) {
+                    effects.extend(tool.effects.iter().cloned());
+                }
+            }
+        }
+    });
+}
+
+fn collect_pipeline_calls(
+    statements: &[Stmt],
+    program: &Program,
+    calls: &mut std::collections::BTreeSet<String>,
+) {
+    visit_runs(statements, &mut |run| {
+        if program.pipelines.contains_key(&run.callable) {
+            calls.insert(run.callable.clone());
+        }
+    });
+}
+
+fn visit_runs(statements: &[Stmt], visitor: &mut impl FnMut(&RunStmt)) {
+    for statement in statements {
+        match statement {
+            Stmt::Run(run) => visitor(run),
+            Stmt::Parallel { branches, .. } => branches.iter().for_each(&mut *visitor),
+            Stmt::If {
+                then_body,
+                else_body,
+                ..
+            }
+            | Stmt::IfLet {
+                then_body,
+                else_body,
+                ..
+            } => {
+                visit_runs(then_body, visitor);
+                visit_runs(else_body, visitor);
+            }
+            Stmt::While { body, .. } => visit_runs(body, visitor),
+            Stmt::TryCatch {
+                try_body,
+                catch_body,
+                ..
+            } => {
+                visit_runs(try_body, visitor);
+                visit_runs(catch_body, visitor);
+            }
+            Stmt::Match { arms, .. } => {
+                for arm in arms {
+                    visit_runs(&arm.body, visitor);
+                }
+            }
+            Stmt::Assert { .. } | Stmt::Return { .. } | Stmt::Break(_) | Stmt::Continue(_) => {}
+        }
+    }
 }
 
 pub fn analyze_program(program: &Program) -> Vec<AnalysisWarning> {
@@ -524,6 +709,35 @@ fn run(r: &RunStmt, p: &Program, env: &Env) -> Result<TypeExpr, CheckError> {
             format!("unknown agent '{a}'{}", suggestion(a, p.agents.keys())),
         ));
     }
+    if r.retries > 0
+        && let Some(task) = p.tasks.get(&r.callable)
+    {
+        if matches!(task.idempotency, Idempotency::NonIdempotent)
+            || (task.effects.contains("external_write") && !safe_to_retry(&task.idempotency))
+        {
+            return Err(at(
+                r.span,
+                format!(
+                    "task '{}' cannot be retried safely; declare idempotent or keyed idempotency",
+                    task.name
+                ),
+            ));
+        }
+        if let Some(agent) = r.agent.as_ref().and_then(|name| p.agents.get(name)) {
+            for tool_name in &agent.tools {
+                let tool = &p.tools[tool_name];
+                if tool.effects.contains("external_write") && !safe_to_retry(&tool.idempotency) {
+                    return Err(at(
+                        r.span,
+                        format!(
+                            "task '{}' cannot be retried because agent tool '{}' performs an unsafe external write",
+                            task.name, tool.name
+                        ),
+                    ));
+                }
+            }
+        }
+    }
     let expected: std::collections::BTreeSet<_> = params.iter().map(|x| x.name.as_str()).collect();
     let actual: std::collections::BTreeSet<_> = r.args.keys().map(String::as_str).collect();
     if expected != actual {
@@ -583,6 +797,12 @@ fn run(r: &RunStmt, p: &Program, env: &Env) -> Result<TypeExpr, CheckError> {
         need(&fallback, &result, e.span())?
     }
     Ok(result)
+}
+fn safe_to_retry(idempotency: &Idempotency) -> bool {
+    matches!(
+        idempotency,
+        Idempotency::Pure | Idempotency::Idempotent | Idempotency::KeyedBy(_)
+    )
 }
 
 fn infer(e: &Expr, env: &Env, p: &Program) -> Result<TypeExpr, CheckError> {

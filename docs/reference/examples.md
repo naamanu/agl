@@ -1,6 +1,6 @@
 # Examples
 
-AgentLang ships with seventeen `.agent` examples in `examples/`. Each one exercises a distinct set of language features.
+AgentLang ships with nineteen `.agent` examples in `examples/`. Each one exercises a distinct set of language features. The examples are executable source files; use `cargo run -- <file> --check` to validate one without running it.
 
 ---
 
@@ -696,6 +696,23 @@ cargo run -- examples/tax_advisory.agent tax_optimisation_report \
 ```
 
 ---
+
+## Additional 0.6 examples
+
+The repository also includes these focused programs:
+
+| File | Focus |
+|---|---|
+| `deployment_requirements.agent` | Provider-neutral deployment requirements |
+| `newsletter.agent` | Workflow authoring and lowering |
+| `retry_abort.agent` | Explicit retry exhaustion and abort behavior |
+| `native_embed.rs` | Embedding the Rust library and registering a handler |
+
+Validate every `.agent` file in a checkout with:
+
+```bash
+for file in examples/*.agent; do cargo run -- "$file" --check || exit 1; done
+```
 
 ## Authoring tips
 

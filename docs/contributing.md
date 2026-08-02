@@ -4,7 +4,7 @@ This guide explains how to extend AgentLang — adding language features, new ta
 
 ## Development workflow
 
-1. Edit the Rust source in `src/`. Keep the Python implementation synchronized when changing language semantics.
+1. Edit the Rust source in `src/`; it is the normative implementation. Update Python only when changing the compatibility bridge or oracle behavior.
 2. Format and run the native suite:
 
     ```bash
@@ -40,25 +40,12 @@ This guide explains how to extend AgentLang — adding language features, new ta
 ```text
 src/               -- primary Rust compiler and runtime
   adapters/        -- provider clients and native web tools
-  formatter.rs     -- lowered pipeline formatter
+  formatter.rs     -- canonical source and lowered pipeline formatters
   plugins.rs       -- Python task-plugin compatibility bridge
-agentlang/
-  ast.py          -- AST node dataclasses
-  lexer.py        -- tokenizer + string decoder
-  parser.py       -- recursive-descent parser
-  checker.py      -- static type checker
-  runtime.py      -- pipeline executor
-  stdlib.py       -- built-in task handlers + task registry
-  context.py      -- ExecutionContext + observability
-  plugins.py      -- PluginRegistry for extensibility
-  adapters/
-    openai.py     -- OpenAI Responses API client
-    anthropic.py  -- Anthropic Messages API client
-    tools.py      -- web search and other tool adapters
 examples/
   *.agent         -- runnable example programs
 docs/             -- this documentation
-main.py           -- Python compatibility CLI
+main.py           -- legacy Python compatibility CLI
 ```
 
 ## Extending the language
@@ -67,11 +54,11 @@ Adding a new syntax feature touches every layer. Update all of these:
 
 | File | What to change |
 |---|---|
-| `agentlang/ast.py` | Add new AST node dataclass(es) |
-| `agentlang/lexer.py` | Add new tokens or keywords |
-| `agentlang/parser.py` | Add parsing logic for the new syntax |
-| `agentlang/checker.py` | Add type-checking rules |
-| `agentlang/runtime.py` | Add execution semantics |
+| `src/ast.rs` | Add or extend AST types |
+| `src/lexer.rs` | Add tokens or lexical rules |
+| `src/parser.rs` | Add parsing logic and source diagnostics |
+| `src/checker.rs` | Add type/effect rules |
+| `src/runtime.rs` | Add execution semantics and trace events |
 | `docs/reference/language.md` | Update syntax reference |
 | `docs/reference/runtime.md` | Update execution phase docs |
 | `docs/advanced/semantics.md` | Update formal rules |
@@ -84,26 +71,21 @@ Adding a new syntax feature touches every layer. Update all of these:
     task my_task(input: String) -> Obj{result: String} {}
     ```
 
-2. Add a handler function in `agentlang/stdlib.py`:
+2. Register a Rust handler in a `Registry`:
 
-    ```python
-    def my_task_handler(args: dict[str, Any], agent: str | None) -> dict[str, str]:
-        return {"result": f"handled: {args['input']}"}
+    ```rust
+    registry.register("my_task", |args, _agent| {
+        Ok(TaskOutput::new(json!({"result": args["input"]})))
+    });
     ```
 
-3. Register it in `default_task_registry()`:
+3. Add or update an example in `examples/`.
 
-    ```python
-    "my_task": my_task_handler,
-    ```
-
-4. Add or update an example in `examples/`.
-
-5. Document the task in `docs/reference/examples.md` and `docs/reference/adapters.md` if it has live behavior.
+4. Document the task in `docs/reference/examples.md` and `docs/reference/adapters.md` if it has live behavior.
 
 ## Adapter changes
 
-The OpenAI adapter lives in `agentlang/adapters/openai.py` and the Anthropic adapter in `agentlang/adapters/anthropic.py`. Tool adapters (web search) are in `agentlang/adapters/tools.py`.
+The native provider clients live in `src/adapters/`; native web tools live in `src/adapters/tools.rs`. Python providers are retained only for the compatibility path.
 
 Guidelines:
 
@@ -113,8 +95,7 @@ Guidelines:
 
 ## Style guidelines
 
-- 4-space indentation, explicit type hints on public functions.
-- `snake_case` for functions/variables, `PascalCase` for classes.
+- Follow `rustfmt` and Clippy for Rust code; use descriptive public API names and explicit error types.
 - Keep changes small and composable — prefer explicit errors over silent fallbacks.
 - Keep docs synchronized with behavior changes.
 - Follow Conventional Commit style: `feat:`, `fix:`, `docs:` prefixes with an imperative, concise subject.
@@ -123,7 +104,6 @@ Guidelines:
 
 Before opening a PR:
 
-- [ ] `py_compile` passes on all core modules
 - [ ] At least one happy-path example runs correctly
 - [ ] At least one failure-path example runs correctly (if relevant)
 - [ ] `--test` passes on `showcase_all_features.agent` (with plugin)

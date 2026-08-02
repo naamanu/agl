@@ -1,6 +1,6 @@
 # Retry & Fallback
 
-AgentLang has first-class syntax for handling transient task failures. You can declare a retry budget and a fallback policy directly in the run statement — no try/except in Python, no wrapper logic.
+AgentLang has first-class syntax for handling transient task failures. You can declare a retry budget and a fallback policy directly in the run statement; the Rust runtime owns attempt accounting, backoff, cancellation, and fallback selection.
 
 ## Syntax
 
@@ -59,7 +59,7 @@ let f = run flaky_fetch
 
 ## Timeout and retries
 
-When a task has both `retries` and `timeout` clauses, a timeout skips all remaining retries. The runtime raises `HandlerTimeoutError` and does not attempt the task again. This is because the timed-out handler thread is still running in the background — retrying would overlap invocations, risking duplicated or reordered side-effects.
+When a task has both `retries` and `timeout` clauses, a timeout cancels the invocation and is non-retryable. A contextual handler should observe its cancellation token and stop promptly; the runtime waits briefly for cooperative shutdown before returning the timeout failure. This prevents overlapping attempts and unsafe duplicated side effects.
 
 The `on_fail use` fallback still applies after a timeout. If the task times out and a fallback expression is declared, the fallback value is used instead of raising an error.
 

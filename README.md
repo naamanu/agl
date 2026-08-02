@@ -145,15 +145,15 @@ src/
   stdlib.rs     -- deterministic task handlers
   context.rs    -- structured execution traces
   adapters/     -- OpenAI, Anthropic, and validated web tools
-  formatter.rs  -- lowered pipeline IR formatter
+  formatter.rs  -- canonical source and lowered pipeline formatters
   plugins.rs    -- Python task/tool-plugin migration bridge
   lib.rs        -- public embedding API
   main.rs       -- native CLI
 agentlang/
   ...           -- original Python reference implementation and live adapters
-examples/       -- seventeen runnable .agent programs
+examples/       -- nineteen runnable .agent programs
 docs/           -- full documentation (MkDocs)
-main.py         -- compatibility Python CLI
+main.py         -- legacy Python compatibility CLI
 ```
 
 ## Documentation

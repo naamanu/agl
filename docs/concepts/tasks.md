@@ -25,7 +25,7 @@ task investigate(topic: String) -> Obj{summary: String, sources: List[String]} b
 ## Rules
 
 - The body is always `{}`.
-- Standard tasks are supplied by Python handlers at runtime.
+- Standard tasks are supplied by the Rust `Registry`, native adapters, or the Python compatibility bridge at runtime.
 - `task ... by agent {}` declares a model-executed task that must be run with an explicit `by <agent>` binding.
 - Task names must be unique within a file.
 - Parameter names must be unique within a task.
@@ -73,7 +73,7 @@ task investigate(topic: String) -> Obj{summary: String, sources: List[String]} b
 ## Adding a new task
 
 1. Declare the signature in your `.agent` file.
-2. For deterministic tasks, add a Python handler in `agentlang/stdlib.py`.
+2. For deterministic native tasks, register a Rust handler in a `Registry`; use `--plugin` only when migrating an existing Python handler.
 3. For model-executed tasks, declare `by agent` and rely on the runtime-generated handler path.
 
 See [Contributing → Adding a Task](../contributing.md#adding-a-new-task) for the full checklist.

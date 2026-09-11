@@ -22,7 +22,7 @@ An item is not complete merely because its parser accepts new syntax. Completion
 - AST, parser, formatter, checker, and runtime support as applicable.
 - Positive and negative conformance fixtures.
 - Rust unit and integration tests.
-- Differential tests when the feature belongs to the retained Python compatibility surface.
+- Rust regression tests for observable runtime behavior.
 - Language-reference and conceptual documentation.
 - Formal static or dynamic semantics for language-level behavior.
 - Diagnostic source spans and stable error codes for rejected programs.
@@ -33,7 +33,7 @@ An item is not complete merely because its parser accepts new syntax. Completion
 This phase prevents the implementation, documentation, and paper from becoming competing definitions of AGL.
 
 - [x] Create a normative, versioned AGL 0.2 specification.
-- [x] Declare the Rust implementation normative and define the Python implementation's compatibility role.
+- [x] Declare Rust the sole language implementation.
 - [x] Resolve whether objects are exact or use width/depth structural subtyping.
 - [x] Reconcile current CLI names, adapter names, environment variables, and defaults.
 - [x] Define lexical, grammar, name-resolution, typing, and execution behavior separately.
@@ -211,7 +211,7 @@ Acceptance criteria:
 - [x] Define versioned Rust traits and data contracts for hosts, task handlers, tools, event stores, policy resolvers, and graders.
 - [x] Add compatibility tests for extension implementations.
 - [x] Keep compile-time Rust registration as the default native extension model.
-- [x] Version the Python subprocess protocol and document its deprecation criteria.
+- [x] Provide native extension migration guidance; the subprocess bridge has been removed.
 - [x] Evaluate a process-isolated WASI component boundary only after the native contracts stabilize.
 
 Acceptance criteria:
@@ -230,7 +230,7 @@ These requirements apply throughout phases 0.3–0.6 rather than being deferred 
 - [x] Track model, prompt, tool, source, and human-approval provenance.
 - [x] Add configurable network-host and filesystem-path allowlists.
 - [x] Make external writes and approval requirements visible in static summaries.
-- [x] Define trust boundaries for native, Python, and future process-isolated extensions.
+- [x] Define trust boundaries for native and future process-isolated extensions.
 
 ## Deliberate non-goals
 
@@ -248,7 +248,6 @@ These requirements apply throughout phases 0.3–0.6 rather than being deferred 
 cargo fmt --all -- --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test --locked
-python3 -m unittest discover -s tests
 cargo bench --bench runtime
 cargo package --locked
 ```

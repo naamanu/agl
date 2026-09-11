@@ -6,7 +6,7 @@ Language version: `0.2`
 
 Normative implementation: the Rust crate and CLI in `src/`
 
-This specification defines the source-language contract for AGL 0.2. When examples, conceptual documentation, the historical paper, or the retained Python implementation disagree with this document, this document and its Rust conformance suite take precedence. The Python implementation is a compatibility oracle for the subset exercised by differential tests; it is not the normative definition of new behavior.
+This specification defines the source-language contract for AGL 0.2. When examples, conceptual documentation, or the historical paper disagree with this document, this document and its Rust conformance suite take precedence. Rust is the sole language implementation.
 
 ## 1. Source files and versioning
 
@@ -86,7 +86,7 @@ pipeline name(parameter: Type, ...) -> Type {
 }
 ```
 
-A pipeline has a unique name, unique parameter names, a declared result type, and at least one statically compatible return. Pipelines may call other pipelines, subject to the recursion limit at runtime.
+A pipeline has a unique name, unique parameter names, a declared result type, and at least one reachable return. Every reachable return must be assignable to the declared result type. Pipelines may call other pipelines, subject to the recursion limit at runtime.
 
 ### 3.6 Workflows
 
@@ -164,7 +164,9 @@ Pipeline calls cannot use agents, retry, timeout, or fallback clauses. A run mak
 
 `if` and `while` conditions have type `Bool`. `if let name = option` unwraps `Option[T]` and binds `name: T` only in the non-null branch. `break` and `continue` are valid only within a loop.
 
-After conditional control flow, only variables available with mutually assignable types on every possible continuation remain in scope. A loop body may execute zero times, so it cannot introduce a definitely available post-loop binding.
+Only normally completing branches contribute to the environment after a conditional; a returning branch does not remove bindings established by the continuing branch. Bindings retained across multiple normal paths must have mutually assignable types. Optional bindings are restored to their prior values (or removed if fresh) on every exit, including errors and loop control.
+
+For loops, every pre-loop binding must remain available with a type assignable to its entry type on each normal or `continue` back-edge. The post-loop environment merges the zero-iteration path with `break` exits. Bindings missing or incompatible on those exits are unavailable afterward. Return and failure exits propagate separately. Each loop consumes only its own break/continue signals.
 
 ### 6.3 Parallel blocks
 
@@ -175,13 +177,15 @@ parallel max_concurrency 4 {
 } join;
 ```
 
-Every branch is a direct run statement evaluated against the same pre-block environment snapshot. Targets must be fresh and pairwise distinct. Results become available after all branches join. Result bindings are deterministic even though completion and trace-event order are not. `max_concurrency` must be at least one.
+Every branch is a direct run statement evaluated against the same pre-block environment snapshot. Targets must be fresh and pairwise distinct. No branch may refer to another branch's result, including when `max_concurrency` is one. Results become available after all branches join. Result bindings are deterministic even though completion and trace-event order are not. `max_concurrency` must be at least one.
 
 ### 6.4 Try, assertions, and return
 
 `try/catch` catches execution failures and binds their rendered message as `String`. It does not intercept `return`, `break`, or `continue`. `assert condition, "message";` requires a boolean and raises an execution failure when false.
 
-Every returned expression must be assignable to the pipeline result type. AGL 0.2 return-path analysis is conservative: a pipeline must contain at least one compatible return, while runtime still rejects a path that reaches the end without returning.
+Catch bindings are temporary on all exits. Other bindings made before an error persist: catch does not roll back the try block. The checker derives the catch input from every possible failure prefix, retaining only bindings with mutually assignable types across those prefixes. The analysis conservatively includes a possible time-budget failure before every statement.
+
+Every reachable returned expression must be assignable to the pipeline result type; diagnostics identify the offending expression. Unreachable statements do not contribute types or exits, but remain eligible for analysis warnings. AGL 0.2 permits normal fallthrough if at least one reachable return exists; the runtime still rejects a path that reaches the end without returning. Later versions reject normal fallthrough statically.
 
 ## 7. Static checking
 

@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Correct try/catch control-flow propagation and restore optional, match, and catch bindings on every completion.
+- Track normal, return, break, continue, and error paths independently in the checker; validate every reachable return and reject unsafe parallel dependencies and loop/catch environments across all language versions.
+
+- Replace MkDocs with mdBook, migrate navigation and math formatting, and build documentation with Rust tooling in CI.
+
+- Remove the Python language implementation, package metadata, legacy CLI, benchmark, and compatibility tests.
+- Remove the Python task/tool bridge, `--plugin` CLI/REPL option, `agl::plugins`, `PYTHON_PROTOCOL_VERSION`, and `ProtocolEnvelope`; custom handlers now use native Rust registries. This is a breaking host API change.
+- Replace differential tests with fixed Rust example regressions and remove Python from Rust CI.
+
 ## 0.6.0 — Unreleased
 
 - Add modules, qualified names, public/private visibility, cycle checks, and cached interfaces.

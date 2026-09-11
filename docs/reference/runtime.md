@@ -1,6 +1,6 @@
 # Compiler and runtime
 
-The Rust implementation is normative for AGL 0.6. The versioned language contracts are in [`spec/agl-0.2.md`](https://github.com/naamanu/agl/blob/main/spec/agl-0.2.md) through [`spec/agl-0.6.md`](https://github.com/naamanu/agl/blob/main/spec/agl-0.6.md); the Python implementation is retained as a compatibility oracle and plugin bridge.
+The Rust implementation is normative for AGL 0.6. The versioned language contracts are in [`spec/agl-0.2.md`](https://github.com/naamanu/agl/blob/main/spec/agl-0.2.md) through [`spec/agl-0.6.md`](https://github.com/naamanu/agl/blob/main/spec/agl-0.6.md). Rust is the sole language implementation.
 
 ## Execution pipeline
 
@@ -33,7 +33,7 @@ Important public types include `Program`, `Registry`, `Invocation`, `TaskOutput`
 
 ## Handlers and invocations
 
-Task declarations provide signatures; behavior comes from a Rust `Registry`, a native provider adapter, or the process-isolated Python compatibility bridge. Contextual handlers receive an `Invocation` containing:
+Task declarations provide signatures; behavior comes from a Rust `Registry` or a native provider adapter. Contextual handlers receive an `Invocation` containing:
 
 - stable execution, invocation, and idempotency identifiers;
 - attempt number and optional execution context;

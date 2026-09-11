@@ -34,11 +34,6 @@ jobs:
         with:
           components: clippy,rustfmt
 
-      - name: Install Python compatibility oracle
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.14"
-
       - name: Check formatting
         run: cargo fmt --all -- --check
 
@@ -47,9 +42,6 @@ jobs:
 
       - name: Test
         run: cargo test --locked
-
-      - name: Python compatibility oracle
-        run: python3 -m unittest discover -s tests
 
       - name: Verify package
         run: cargo package --locked

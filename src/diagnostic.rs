@@ -158,7 +158,7 @@ mod tests {
         let error = crate::check_program(&program).unwrap_err();
         assert_eq!(
             render_diagnostic("example.agent", source, &error),
-            "[AGL2001] example.agent:2:3\nerror: pipeline 'main' has no compatible return\n  |\n2 |   return 7;\n  |   ^"
+            "[AGL2001] example.agent:2:10\nerror: type mismatch: expected String, got Number\n  |\n2 |   return 7;\n  |          ^"
         );
     }
 }

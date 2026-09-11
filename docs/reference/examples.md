@@ -621,7 +621,7 @@ cargo run -- examples/break_continue.agent skip_once \
 
 ## `showcase_all_features.agent` — comprehensive feature showcase
 
-**Features:** type aliases, enums, shorthand syntax, `max_concurrency`, try/catch, pipeline-calls-pipeline, assert, test blocks, plugin support, observability
+**Features:** type aliases, enums, shorthand syntax, `max_concurrency`, try/catch, pipeline-calls-pipeline, assert, test blocks, native task handlers, observability
 
 This example exercises every new AgentLang construct in a content production system that researches a topic, drafts in parallel across two angles, merges drafts, runs a quality review loop, and produces a final deliverable.
 
@@ -666,19 +666,16 @@ test "merge_drafts combines two drafts" {
 ```
 
 ```bash
-# Run the pipeline with plugin
+# Run the pipeline with native handlers
 cargo run -- examples/showcase_all_features.agent produce \
-  --input '{"topic":"AI safety"}' \
-  --plugin examples/showcase_plugin.py
+  --input '{"topic":"AI safety"}'
 
 # Run tests
-cargo run -- examples/showcase_all_features.agent --test \
-  --plugin examples/showcase_plugin.py
+cargo run -- examples/showcase_all_features.agent --test
 
 # With execution trace
 cargo run -- examples/showcase_all_features.agent produce \
   --input '{"topic":"AI safety"}' \
-  --plugin examples/showcase_plugin.py \
   --output-trace trace.json
 ```
 

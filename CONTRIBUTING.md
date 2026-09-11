@@ -4,23 +4,19 @@ Thanks for your interest in contributing.
 
 ## How this repo is laid out
 
-AgentLang has two implementations, and that shapes almost every contribution:
+AgentLang is implemented in Rust:
 
 - **`src/`** — the Rust library and CLI. This is the primary implementation.
-- **`agentlang/`** — the original Python implementation, kept as a **compatibility
-  oracle**. CI runs it against the same tests, so the two must agree on observable
-  behaviour.
-- **`spec/`** — the language specification. `spec/agl-0.2.md` is normative for the
-  current language version.
+- **`spec/`** — the language specification. Versioned contracts run from
+  `spec/agl-0.2.md` through `spec/agl-0.6.md`.
 - **`tests/`**, **`examples/`**, **`benches/`**, **`docs/`**, **`tree-sitter-agl/`**
 
-A language change is therefore usually a **three-part PR**: spec, Rust, and Python
-oracle. Say so in your PR description if you are intentionally changing only one.
+A language change updates the versioned specification, Rust implementation,
+and relevant conformance or regression tests together.
 
 ## Prerequisites
 
 - Rust `1.94.1` — pinned in `rust-toolchain.toml`, so `rustup` picks it up automatically
-- Python 3.14 for the compatibility oracle
 
 ## Getting started
 
@@ -39,21 +35,25 @@ Run what CI runs:
 cargo fmt --all -- --check
 cargo clippy --all-targets -- -D warnings
 cargo test --locked
-python3 -m unittest discover -s tests   # compatibility oracle
 cargo package --locked
 ```
 
 Clippy warnings are denied, so a warning fails the build.
 
+For documentation changes, install mdBook with
+`cargo install mdbook --version 0.5.4 --locked`, then run `mdbook build`.
+Use `mdbook serve --open` for a local preview. Navigation lives in
+`docs/SUMMARY.md`; configuration lives in `book.toml`.
+
 ## Changing the language
 
 If your change affects syntax, types, or error codes:
 
-1. Update `spec/agl-0.2.md` first — the spec is the contract, not the implementation.
+1. Update the relevant versioned document in `spec/` first — the spec is the contract, not the implementation.
 2. Error codes are structured (`AGL1003`, `AGL3001`, …). Reuse an existing code where
    one fits; if you add one, document it in the spec.
 3. Add an example under `examples/` when you add user-visible syntax.
-4. Keep the Rust implementation and the Python oracle in agreement.
+4. Add Rust regression tests and conformance fixtures for the behavior.
 
 ## Making changes
 
@@ -65,8 +65,8 @@ If your change affects syntax, types, or error codes:
 
 Please include:
 
-- Whether you hit it via the Rust CLI or the Python implementation
-- A minimal `.agl` program that reproduces it
+- Whether you hit it via the CLI or the Rust embedding API
+- A minimal `.agent` program that reproduces it
 - The error code, if one was printed
 - Expected vs actual behaviour
 

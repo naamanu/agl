@@ -1,6 +1,6 @@
 # Rust implementation status
 
-AGL 0.6 is implemented by the native Rust compiler, checker, runtime, CLI, adapters, and embedding API. The Python implementation remains available as a compatibility oracle and as a migration bridge for existing task/tool plugins; it is not the normative runtime.
+AGL 0.6 is implemented by the native Rust compiler, checker, runtime, CLI, adapters, and embedding API. Rust is the sole language implementation.
 
 ## Implemented surface
 
@@ -19,11 +19,10 @@ AGL 0.6 is implemented by the native Rust compiler, checker, runtime, CLI, adapt
 | Formatter, JSON-lines protocol, LSP, completions | Complete |
 | OpenAI and Anthropic adapters plus native tools | Complete |
 | Rust handler/tool/adapter extension traits | Complete |
-| Python task/tool plugin bridge | Compatibility support |
 
-## Compatibility boundary
+## Extension boundary
 
-Rust accepts the checked-in `.agent` examples and is the implementation used by the conformance and differential suites. Python plugins run in a separate process through a versioned JSON envelope; native applications should prefer `Registry`, `ToolRegistry`, and the extension traits in `agl::extension`.
+Rust accepts the checked-in `.agent` examples and is the implementation used by the conformance and regression suites. Applications extend it through `Registry`, `ToolRegistry`, and the extension traits in `agl::extension`.
 
 ## Embedding
 
@@ -50,7 +49,6 @@ let value = execute_pipeline(
 cargo fmt --all -- --check
 cargo clippy --all-targets --all-features --offline -- -D warnings
 cargo test --locked --offline
-python3 -m unittest discover -s tests
 cargo package --locked --offline
 ```
 

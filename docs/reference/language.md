@@ -180,7 +180,7 @@ pipeline <name>( <params> ) -> <type> {
 }
 ```
 
-Constraints: pipeline names unique, at least one reachable `return`.
+Constraints: pipeline names unique, at least one reachable `return`, and every reachable return assignable to the declared result type. AGL 0.3–0.6 also reject normal fallthrough; 0.2 permits it until the runtime boundary.
 
 ## `workflow` declaration
 
@@ -301,7 +301,7 @@ while <expr> {
 }
 ```
 
-Condition must have type `Bool`. The loop body may contain the same statement forms as a pipeline block.
+Condition must have type `Bool`. The loop body may contain the same statement forms as a pipeline block. Normal and continue back-edges must preserve the entry binding types. The post-loop scope merges the zero-iteration path with break exits; incompatible bindings are unavailable afterward.
 
 ### Break / Continue
 
@@ -355,7 +355,7 @@ try {
 
 `Failure` exposes `kind`, `message`, `operation: Option[String]`, and `retryable`. Typed `Result::Err` values are ordinary domain outcomes and are not caught.
 
-If any statement in the `try` block raises a runtime error, execution jumps to the `catch` block. The `<error_var>` is bound as a `String` containing the error message. Variables bound inside `try` that were also bound before `try` are available after the block (the catch block may re-bind them).
+If any statement in the `try` block raises a runtime error, execution jumps to the `catch` block. The `<error_var>` is bound as a `String` containing the error message. The catch begins with bindings from partial execution, not a rolled-back entry scope. Only names compatible at every possible failure prefix are available to the handler. The catch variable is restored or removed on every exit; return, break, and continue propagate through successful try blocks. Only normally completing paths contribute to the post-block scope.
 
 ```agentlang
 try {

@@ -32,7 +32,6 @@ The source file is parsed, imported modules are loaded, diagnostics are emitted,
 | `--approval NAME=BOOL` | Supply an approval or rejection; may be repeated. |
 | `--eval NAME` | Run a declared dataset evaluation. |
 | `--update-baseline` | Replace the selected evaluation baseline; requires `--eval`. |
-| `--plugin MODULE` | Load a Python compatibility plugin by path or dotted name; may be repeated. |
 
 Examples:
 
@@ -67,7 +66,7 @@ Loaded 'examples/blog.agent': 2 agents, 2 tasks, 1 pipelines.
 }
 ```
 
-Commands are `load <path>`, `run <name> [json]`, `lower <name>`, `list`, `clear`, `help`, and `exit`. REPL options also accept `--deployment`, `--plugin`, and `--trace-live`.
+Commands are `load <path>`, `run <name> [json]`, `lower <name>`, `list`, `clear`, `help`, and `exit`. REPL options also accept `--deployment` and `--trace-live`.
 
 ## Tooling subcommands
 
@@ -108,4 +107,4 @@ Never put credentials in `.agent` files or deployment/policy JSON.
 
 ## Exit status
 
-`0` means the requested operation succeeded. `1` means a source, type, runtime, provider, plugin, policy, or evaluation failure. `2` means invalid CLI arguments or an unsupported completion shell.
+`0` means the requested operation succeeded. `1` means a source, type, runtime, provider, policy, or evaluation failure. `2` means invalid CLI arguments or an unsupported completion shell.

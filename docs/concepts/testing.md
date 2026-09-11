@@ -89,13 +89,8 @@ PASS  countdown reaches done
 | `0` | All tests passed |
 | `1` | One or more tests failed |
 
-## Using with plugins
+## Using native handlers
 
-Test blocks use the same task registry as normal execution. If your tests depend on plugin-provided handlers, load the plugin:
+Test blocks use the same task registry as normal execution. In a Rust host, register custom handlers on `Registry` and pass it to `agl::run_tests` along with the program and execution context. The showcase test blocks use built-in native handlers.
 
-```bash
-cargo run -- examples/showcase_all_features.agent --test \
-  --plugin examples/showcase_plugin.py
-```
-
-## Next: [Plugins](plugins.md)
+## Next: [Native handlers](plugins.md)

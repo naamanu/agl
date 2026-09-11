@@ -9,16 +9,16 @@
 --   6. Pipeline-calls-pipeline (run sub_pipeline with {...};)
 --   7. Assert + test blocks  (assert ...; / test "..." { ... })
 --   8. Observability via --output-trace (run with CLI flag)
---   9. Plugin support        (run with --plugin flag)
+--   9. Native task handlers  (built-in Rust registry)
 --
 -- Scenario: A content production system that researches a topic,
 -- drafts an article in parallel across two angles, merges drafts,
 -- runs a quality review loop, and produces a final deliverable.
 --
 -- Run:
---   python main.py examples/showcase_all_features.agent produce '{"topic":"AI safety"}'
---   python main.py examples/showcase_all_features.agent produce '{"topic":"AI safety"}' --output-trace trace.json
---   python main.py examples/showcase_all_features.agent --test
+--   cargo run -- examples/showcase_all_features.agent produce --input '{"topic":"AI safety"}'
+--   cargo run -- examples/showcase_all_features.agent produce --input '{"topic":"AI safety"}' --output-trace trace.json
+--   cargo run -- examples/showcase_all_features.agent --test
 
 -- ── tools ──────────────────────────────────────────────────────────
 

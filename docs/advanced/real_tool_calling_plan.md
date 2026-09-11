@@ -31,7 +31,7 @@ This plan upgrades AgentLang from a workflow DSL with tool metadata into a runti
 - Each tool runtime entry must include:
   - typed argument contract from the DSL declaration
   - typed return contract from the DSL declaration
-  - Python handler implementation
+  - Rust handler implementation
 - Runtime must validate tool input values before calling handlers and validate tool outputs after handler execution.
 
 ### 3. OpenAI tool-calling loop
@@ -54,7 +54,7 @@ This plan upgrades AgentLang from a workflow DSL with tool metadata into a runti
   ```
 
 - Semantics:
-  - deterministic tasks continue to use Python task handlers
+  - deterministic tasks continue to use Rust task handlers
   - `by agent` tasks are solved by the model bound in the run statement's agent
   - the runtime exposes only the tools allowed by that agent declaration
 

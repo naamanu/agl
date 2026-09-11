@@ -17,12 +17,12 @@ try {
 1. The `try` block executes its statements in order.
 2. If any statement raises a runtime error (task failure, assertion, etc.), execution immediately jumps to the `catch` block.
 3. The error variable is bound as a `String` containing the error message.
-4. If the `try` block completes without error, the `catch` block is skipped entirely.
+4. If the `try` block completes without error, the `catch` block is skipped entirely. Return, break, and continue propagate through the try block.
 
 ## Scope rules
 
-- The error variable (`<error_var>`) is only in scope inside the `catch` block.
-- Variables bound before the `try` block can be re-bound inside either the `try` or `catch` block. The merged environment after the block reflects whichever branch executed.
+- The error variable (`<error_var>`) is only in scope inside the `catch` block. A shadowed value is restored on every exit, including when the handler itself fails.
+- Variables bound before the `try` block can be re-bound inside either the `try` or `catch` block. Rebindings before a failure persist into catch; they are not rolled back. The checker permits catch to read only names with compatible types at every possible failure point. After the construct, only normally completing paths contribute to the merged environment.
 
 ## Example
 

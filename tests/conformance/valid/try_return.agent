@@ -1,0 +1,2 @@
+language "0.2";
+pipeline main() -> Number { try { return 1; } catch err { return 2; } return 3; }

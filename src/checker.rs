@@ -44,14 +44,15 @@ pub fn check_program(p: &Program) -> Result<(), CheckError> {
         }
     }
     for x in p.pipelines.values() {
-        let mut env = x
+        check_loop_placement(&x.statements, false)?;
+        let env = x
             .params
             .iter()
             .map(|v| (v.name.clone(), resolve(&v.ty, p)))
             .collect();
-        let returns = block(&x.statements, p, &mut env, false)?;
+        let flow = block(&x.statements, p, env, false)?;
         let expected = resolve(&x.return_type, p);
-        if !returns.iter().any(|t| assignable(t, &expected)) {
+        if flow.returns.is_empty() {
             return Err(at(
                 x.statements
                     .last()
@@ -60,7 +61,10 @@ pub fn check_program(p: &Program) -> Result<(), CheckError> {
                 format!("pipeline '{}' has no compatible return", x.name),
             ));
         }
-        if p.language_version != "0.2" && !block_terminates(&x.statements) {
+        for (ty, span) in &flow.returns {
+            need(ty, &expected, *span)?;
+        }
+        if p.language_version != "0.2" && flow.normal.is_some() {
             return Err(at(
                 x.statements
                     .last()
@@ -71,8 +75,8 @@ pub fn check_program(p: &Program) -> Result<(), CheckError> {
         }
     }
     for x in &p.tests {
-        let mut env = Env::new();
-        block(&x.statements, p, &mut env, false)?;
+        check_loop_placement(&x.statements, false)?;
+        block(&x.statements, p, Env::new(), false)?;
     }
     for eval in p.evals.values() {
         if !p.pipelines.contains_key(&eval.pipeline) {
@@ -549,151 +553,293 @@ fn statement_terminates(statement: &Stmt) -> bool {
     }
 }
 
-fn block(
-    xs: &[Stmt],
-    p: &Program,
-    env: &mut Env,
-    in_loop: bool,
-) -> Result<Vec<TypeExpr>, CheckError> {
-    let mut returns = Vec::new();
-    for s in xs {
-        match s {
-            Stmt::Run(r) => {
-                let ty = run(r, p, env)?;
-                env.insert(r.target.clone(), ty);
+// Loop-control placement is a structural constraint, even in unreachable code.
+fn check_loop_placement(statements: &[Stmt], in_loop: bool) -> Result<(), CheckError> {
+    for statement in statements {
+        match statement {
+            Stmt::Break(span) | Stmt::Continue(span) if !in_loop => {
+                return Err(at(*span, "break/continue outside while loop"));
             }
-            Stmt::Approve { target, .. } => {
-                env.insert(target.clone(), TypeExpr::Bool);
-            }
-            Stmt::Parallel {
-                branches,
-                max_concurrency,
-                ..
-            } => {
-                if max_concurrency == &Some(0) {
-                    return Err(at(s.span(), "max_concurrency must be at least 1"));
-                }
-                let mut names = std::collections::BTreeSet::new();
-                for r in branches {
-                    if env.contains_key(&r.target) || !names.insert(r.target.clone()) {
-                        return Err(at(
-                            r.span,
-                            format!("parallel target '{}' must be fresh and distinct", r.target),
-                        ));
-                    }
-                    let ty = run(r, p, env)?;
-                    env.insert(r.target.clone(), ty);
-                }
-            }
-            Stmt::ParallelMap {
-                target,
-                binding,
-                items,
-                run: mapped,
-                ..
-            } => {
-                if p.pipelines.contains_key(&mapped.callable) {
-                    return Err(at(
-                        mapped.span,
-                        "parallel map currently requires a direct task call",
-                    ));
-                }
-                let item = match infer(items, env, p)? {
-                    TypeExpr::List(inner) => *inner,
-                    actual => {
-                        return Err(at(
-                            items.span(),
-                            format!("parallel map requires List, got {actual:?}"),
-                        ));
-                    }
-                };
-                let mut branch = env.clone();
-                branch.insert(binding.clone(), item);
-                let output = run(mapped, p, &branch)?;
-                env.insert(target.clone(), TypeExpr::List(Box::new(output)));
-            }
-            Stmt::Race {
-                target, branches, ..
-            } => {
-                if branches
-                    .iter()
-                    .any(|branch| p.pipelines.contains_key(&branch.callable))
-                {
-                    return Err(at(s.span(), "race currently requires direct task calls"));
-                }
-                let mut outputs = branches.iter().map(|branch| run(branch, p, env));
-                let first = outputs.next().expect("parser requires race branches")?;
-                for output in outputs {
-                    let output = output?;
-                    if !assignable(&output, &first) || !assignable(&first, &output) {
-                        return Err(at(s.span(), "race branches must return the same type"));
-                    }
-                }
-                env.insert(target.clone(), first);
-            }
+            Stmt::While { body, .. } => check_loop_placement(body, true)?,
             Stmt::If {
-                condition,
+                then_body,
+                else_body,
+                ..
+            }
+            | Stmt::IfLet {
                 then_body,
                 else_body,
                 ..
             } => {
-                need(
-                    &infer(condition, env, p)?,
-                    &TypeExpr::Bool,
-                    condition.span(),
-                )?;
-                let (mut a, mut b) = (env.clone(), env.clone());
-                returns.extend(block(then_body, p, &mut a, in_loop)?);
-                returns.extend(block(else_body, p, &mut b, in_loop)?);
-                *env = common(a, b)
-            }
-            Stmt::IfLet {
-                binding,
-                option,
-                then_body,
-                else_body,
-                ..
-            } => {
-                let inner = match infer(option, env, p)? {
-                    TypeExpr::Option(x) => *x,
-                    x => {
-                        return Err(at(
-                            option.span(),
-                            format!("if let requires Option, got {x:?}"),
-                        ));
-                    }
-                };
-                let (mut a, mut b) = (env.clone(), env.clone());
-                a.insert(binding.clone(), inner);
-                returns.extend(block(then_body, p, &mut a, in_loop)?);
-                returns.extend(block(else_body, p, &mut b, in_loop)?);
-                *env = common(a, b)
-            }
-            Stmt::While {
-                condition, body, ..
-            } => {
-                need(
-                    &infer(condition, env, p)?,
-                    &TypeExpr::Bool,
-                    condition.span(),
-                )?;
-                let mut inner = env.clone();
-                returns.extend(block(body, p, &mut inner, true)?)
-            }
-            Stmt::Break(sp) | Stmt::Continue(sp) => {
-                if !in_loop {
-                    return Err(at(*sp, "break/continue outside while loop"));
-                }
+                check_loop_placement(then_body, in_loop)?;
+                check_loop_placement(else_body, in_loop)?;
             }
             Stmt::TryCatch {
                 try_body,
-                error_var,
-                structured,
                 catch_body,
                 ..
             } => {
-                let (mut a, mut b) = (env.clone(), env.clone());
-                b.insert(
+                check_loop_placement(try_body, in_loop)?;
+                check_loop_placement(catch_body, in_loop)?;
+            }
+            Stmt::Match { arms, .. } => {
+                for arm in arms {
+                    check_loop_placement(&arm.body, in_loop)?;
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+/// Reachable exits from a block. None means unreachable, not an empty scope.
+#[derive(Default)]
+struct BlockFlow {
+    normal: Option<Env>,
+    returns: Vec<(TypeExpr, Span)>,
+    breaks: Option<Env>,
+    continues: Option<Env>,
+    failures: Option<Env>,
+}
+
+fn join_env(target: &mut Option<Env>, incoming: Option<Env>) {
+    if let Some(incoming) = incoming {
+        *target = Some(match target.take() {
+            Some(existing) => common(existing, incoming),
+            None => incoming,
+        });
+    }
+}
+
+impl BlockFlow {
+    fn merge(&mut self, other: Self) {
+        join_env(&mut self.normal, other.normal);
+        self.returns.extend(other.returns);
+        join_env(&mut self.breaks, other.breaks);
+        join_env(&mut self.continues, other.continues);
+        join_env(&mut self.failures, other.failures);
+    }
+
+    fn restore(&mut self, name: &str, before: &Env) {
+        for env in [
+            &mut self.normal,
+            &mut self.breaks,
+            &mut self.continues,
+            &mut self.failures,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if let Some(ty) = before.get(name) {
+                env.insert(name.to_owned(), ty.clone());
+            } else {
+                env.remove(name);
+            }
+        }
+        // Returned values are already evaluated; restoring names cannot change their types.
+    }
+}
+
+fn block(xs: &[Stmt], p: &Program, env: Env, in_loop: bool) -> Result<BlockFlow, CheckError> {
+    let mut flow = BlockFlow {
+        normal: Some(env),
+        ..BlockFlow::default()
+    };
+    for s in xs {
+        let Some(env) = flow.normal.take() else {
+            break;
+        };
+        // The runtime checks its time budget before every statement. Expression
+        // and call failures also leave this incoming environment unchanged.
+        join_env(&mut flow.failures, Some(env.clone()));
+        flow.merge(statement(s, p, env, in_loop)?);
+    }
+    Ok(flow)
+}
+
+fn statement(
+    s: &Stmt,
+    p: &Program,
+    mut state: Env,
+    in_loop: bool,
+) -> Result<BlockFlow, CheckError> {
+    let env = &mut state;
+    match s {
+        Stmt::Run(r) => {
+            let ty = run(r, p, env)?;
+            env.insert(r.target.clone(), ty);
+        }
+        Stmt::Approve { target, .. } => {
+            env.insert(target.clone(), TypeExpr::Bool);
+        }
+        Stmt::Parallel {
+            branches,
+            max_concurrency,
+            ..
+        } => {
+            if max_concurrency == &Some(0) {
+                return Err(at(s.span(), "max_concurrency must be at least 1"));
+            }
+            let mut names = std::collections::BTreeSet::new();
+            let mut outputs = Env::new();
+            for r in branches {
+                if env.contains_key(&r.target) || !names.insert(r.target.clone()) {
+                    return Err(at(
+                        r.span,
+                        format!("parallel target '{}' must be fresh and distinct", r.target),
+                    ));
+                }
+                let ty = run(r, p, env)?;
+                outputs.insert(r.target.clone(), ty);
+            }
+            env.extend(outputs);
+        }
+        Stmt::ParallelMap {
+            target,
+            binding,
+            items,
+            run: mapped,
+            ..
+        } => {
+            if p.pipelines.contains_key(&mapped.callable) {
+                return Err(at(
+                    mapped.span,
+                    "parallel map currently requires a direct task call",
+                ));
+            }
+            let item = match infer(items, env, p)? {
+                TypeExpr::List(inner) => *inner,
+                actual => {
+                    return Err(at(
+                        items.span(),
+                        format!("parallel map requires List, got {actual:?}"),
+                    ));
+                }
+            };
+            let mut branch = env.clone();
+            branch.insert(binding.clone(), item);
+            let output = run(mapped, p, &branch)?;
+            env.insert(target.clone(), TypeExpr::List(Box::new(output)));
+        }
+        Stmt::Race {
+            target, branches, ..
+        } => {
+            if branches
+                .iter()
+                .any(|branch| p.pipelines.contains_key(&branch.callable))
+            {
+                return Err(at(s.span(), "race currently requires direct task calls"));
+            }
+            let mut outputs = branches.iter().map(|branch| run(branch, p, env));
+            let first = outputs.next().expect("parser requires race branches")?;
+            for output in outputs {
+                let output = output?;
+                if !assignable(&output, &first) || !assignable(&first, &output) {
+                    return Err(at(s.span(), "race branches must return the same type"));
+                }
+            }
+            env.insert(target.clone(), first);
+        }
+        Stmt::If {
+            condition,
+            then_body,
+            else_body,
+            ..
+        } => {
+            need(
+                &infer(condition, env, p)?,
+                &TypeExpr::Bool,
+                condition.span(),
+            )?;
+            let mut flow = block(then_body, p, env.clone(), in_loop)?;
+            flow.merge(block(else_body, p, env.clone(), in_loop)?);
+            return Ok(flow);
+        }
+        Stmt::IfLet {
+            binding,
+            option,
+            then_body,
+            else_body,
+            ..
+        } => {
+            let inner = match infer(option, env, p)? {
+                TypeExpr::Option(x) => *x,
+                x => {
+                    return Err(at(
+                        option.span(),
+                        format!("if let requires Option, got {x:?}"),
+                    ));
+                }
+            };
+            let mut branch = env.clone();
+            branch.insert(binding.clone(), inner);
+            let mut flow = block(then_body, p, branch, in_loop)?;
+            flow.restore(binding, env);
+            flow.merge(block(else_body, p, env.clone(), in_loop)?);
+            return Ok(flow);
+        }
+        Stmt::While {
+            condition, body, ..
+        } => {
+            need(
+                &infer(condition, env, p)?,
+                &TypeExpr::Bool,
+                condition.span(),
+            )?;
+            let mut flow = block(body, p, env.clone(), true)?;
+            for back_edge in [&flow.normal, &flow.continues].into_iter().flatten() {
+                for (name, expected) in env.iter() {
+                    let actual = back_edge.get(name).ok_or_else(|| {
+                        at(
+                            s.span(),
+                            format!("loop does not preserve binding '{name}' on every back-edge"),
+                        )
+                    })?;
+                    if !assignable(actual, expected) {
+                        return Err(at(
+                            s.span(),
+                            format!(
+                                "loop binding '{name}' changes type on a back-edge: expected {expected:?}, got {actual:?}"
+                            ),
+                        ));
+                    }
+                }
+            }
+            // The body may run zero times. Only break exits join that path;
+            // return/error propagate and continue is consumed by this loop.
+            flow.normal = Some(env.clone());
+            join_env(&mut flow.normal, flow.breaks.take());
+            flow.continues = None;
+            return Ok(flow);
+        }
+        Stmt::Break(sp) | Stmt::Continue(sp) => {
+            if !in_loop {
+                return Err(at(*sp, "break/continue outside while loop"));
+            }
+            return Ok(if matches!(s, Stmt::Break(_)) {
+                BlockFlow {
+                    breaks: Some(env.clone()),
+                    ..BlockFlow::default()
+                }
+            } else {
+                BlockFlow {
+                    continues: Some(env.clone()),
+                    ..BlockFlow::default()
+                }
+            });
+        }
+        Stmt::TryCatch {
+            try_body,
+            error_var,
+            structured,
+            catch_body,
+            ..
+        } => {
+            let mut flow = block(try_body, p, env.clone(), in_loop)?;
+            if let Some(failure_env) = flow.failures.take() {
+                let mut catch_env = failure_env.clone();
+                catch_env.insert(
                     error_var.clone(),
                     if *structured {
                         TypeExpr::Failure
@@ -701,113 +847,111 @@ fn block(
                         TypeExpr::String
                     },
                 );
-                returns.extend(block(try_body, p, &mut a, in_loop)?);
-                returns.extend(block(catch_body, p, &mut b, in_loop)?);
-                *env = common(a, b)
+                let mut caught = block(catch_body, p, catch_env, in_loop)?;
+                caught.restore(error_var, &failure_env);
+                flow.merge(caught);
             }
-            Stmt::Match { value, arms, .. } => {
-                let matched = resolve(&infer(value, env, p)?, p);
-                let (type_name, variants) = match matched {
-                    TypeExpr::Union(name) => {
-                        let variants = p.unions[&name].variants.clone();
-                        (name, variants)
-                    }
-                    TypeExpr::Result(ok, error) => (
-                        "Result".into(),
-                        BTreeMap::from([
-                            ("Ok".into(), BTreeMap::from([("value".into(), *ok)])),
-                            ("Err".into(), BTreeMap::from([("error".into(), *error)])),
-                        ]),
-                    ),
-                    other => {
-                        return Err(at(
-                            value.span(),
-                            format!("match requires a union or Result, got {other:?}"),
-                        ));
-                    }
-                };
-                let mut seen = std::collections::BTreeSet::new();
-                let mut branch_envs = Vec::new();
-                for arm in arms {
-                    if arm.type_name != type_name {
-                        return Err(at(
-                            arm.span,
-                            format!("match arm uses '{}', expected '{type_name}'", arm.type_name),
-                        ));
-                    }
-                    let fields = variants.get(&arm.variant).ok_or_else(|| {
-                        at(
-                            arm.span,
-                            format!(
-                                "unknown variant '{type_name}::{}'{}",
-                                arm.variant,
-                                suggestion(&arm.variant, variants.keys())
-                            ),
-                        )
-                    })?;
-                    if !seen.insert(arm.variant.clone()) {
-                        return Err(at(
-                            arm.span,
-                            format!(
-                                "unreachable duplicate match arm '{}::{}'",
-                                type_name, arm.variant
-                            ),
-                        ));
-                    }
-                    let expected: std::collections::BTreeSet<_> = fields.keys().collect();
-                    let actual: std::collections::BTreeSet<_> = arm.bindings.iter().collect();
-                    if actual != expected {
-                        return Err(at(
-                            arm.span,
-                            format!(
-                                "match bindings for '{}::{}' do not match fields",
-                                type_name, arm.variant
-                            ),
-                        ));
-                    }
-                    let mut branch = env.clone();
-                    let shadowed: Vec<_> = arm
-                        .bindings
-                        .iter()
-                        .map(|binding| (binding.clone(), branch.get(binding).cloned()))
-                        .collect();
-                    for binding in &arm.bindings {
-                        branch.insert(binding.clone(), resolve(&fields[binding], p));
-                    }
-                    returns.extend(block(&arm.body, p, &mut branch, in_loop)?);
-                    for (binding, previous) in shadowed {
-                        if let Some(ty) = previous {
-                            branch.insert(binding, ty);
-                        } else {
-                            branch.remove(&binding);
-                        }
-                    }
-                    branch_envs.push(branch);
+            return Ok(flow);
+        }
+        Stmt::Match { value, arms, .. } => {
+            let matched = resolve(&infer(value, env, p)?, p);
+            let (type_name, variants) = match matched {
+                TypeExpr::Union(name) => {
+                    let variants = p.unions[&name].variants.clone();
+                    (name, variants)
                 }
-                let missing: Vec<_> = variants
-                    .keys()
-                    .filter(|variant| !seen.contains(*variant))
-                    .cloned()
-                    .collect();
-                if !missing.is_empty() {
+                TypeExpr::Result(ok, error) => (
+                    "Result".into(),
+                    BTreeMap::from([
+                        ("Ok".into(), BTreeMap::from([("value".into(), *ok)])),
+                        ("Err".into(), BTreeMap::from([("error".into(), *error)])),
+                    ]),
+                ),
+                other => {
                     return Err(at(
-                        s.span(),
-                        format!("non-exhaustive match; missing {missing:?}"),
+                        value.span(),
+                        format!("match requires a union or Result, got {other:?}"),
                     ));
                 }
-                if let Some(first) = branch_envs.into_iter().reduce(common) {
-                    *env = first;
+            };
+            let mut seen = std::collections::BTreeSet::new();
+            let mut flow = BlockFlow::default();
+            for arm in arms {
+                if arm.type_name != type_name {
+                    return Err(at(
+                        arm.span,
+                        format!("match arm uses '{}', expected '{type_name}'", arm.type_name),
+                    ));
                 }
+                let fields = variants.get(&arm.variant).ok_or_else(|| {
+                    at(
+                        arm.span,
+                        format!(
+                            "unknown variant '{type_name}::{}'{}",
+                            arm.variant,
+                            suggestion(&arm.variant, variants.keys())
+                        ),
+                    )
+                })?;
+                if !seen.insert(arm.variant.clone()) {
+                    return Err(at(
+                        arm.span,
+                        format!(
+                            "unreachable duplicate match arm '{}::{}'",
+                            type_name, arm.variant
+                        ),
+                    ));
+                }
+                let expected: std::collections::BTreeSet<_> = fields.keys().collect();
+                let actual: std::collections::BTreeSet<_> = arm.bindings.iter().collect();
+                if actual != expected {
+                    return Err(at(
+                        arm.span,
+                        format!(
+                            "match bindings for '{}::{}' do not match fields",
+                            type_name, arm.variant
+                        ),
+                    ));
+                }
+                let mut branch = env.clone();
+                for binding in &arm.bindings {
+                    branch.insert(binding.clone(), resolve(&fields[binding], p));
+                }
+                let mut arm_flow = block(&arm.body, p, branch, in_loop)?;
+                for binding in &arm.bindings {
+                    arm_flow.restore(binding, env);
+                }
+                flow.merge(arm_flow);
             }
-            Stmt::Assert { condition, .. } => need(
-                &infer(condition, env, p)?,
-                &TypeExpr::Bool,
-                condition.span(),
-            )?,
-            Stmt::Return { expr, .. } => returns.push(infer(expr, env, p)?),
+            let missing: Vec<_> = variants
+                .keys()
+                .filter(|variant| !seen.contains(*variant))
+                .cloned()
+                .collect();
+            if !missing.is_empty() {
+                return Err(at(
+                    s.span(),
+                    format!("non-exhaustive match; missing {missing:?}"),
+                ));
+            }
+            return Ok(flow);
+        }
+        Stmt::Assert { condition, .. } => need(
+            &infer(condition, env, p)?,
+            &TypeExpr::Bool,
+            condition.span(),
+        )?,
+        Stmt::Return { expr, .. } => {
+            return Ok(BlockFlow {
+                returns: vec![(infer(expr, env, p)?, expr.span())],
+                ..BlockFlow::default()
+            });
         }
     }
-    Ok(returns)
+    Ok(BlockFlow {
+        normal: Some(state),
+        ..BlockFlow::default()
+    })
 }
 
 fn run(r: &RunStmt, p: &Program, env: &Env) -> Result<TypeExpr, CheckError> {

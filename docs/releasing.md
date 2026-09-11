@@ -6,7 +6,7 @@
 cargo fmt --all -- --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test --locked
-python3 -m unittest discover -s tests
+mdbook build
 cargo bench --bench runtime
 cargo package --locked
 ```

@@ -1,0 +1,5 @@
+{
+  "source": "invalid/mixed_returns.agent",
+  "phase": "reject",
+  "code": "AGL2001"
+}

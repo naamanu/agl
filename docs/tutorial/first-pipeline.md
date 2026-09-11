@@ -4,8 +4,10 @@ This tutorial walks through building an AgentLang pipeline from scratch — a su
 
 By the end you'll have a working `.agent` file and understand the relationship between agents, tasks, and pipelines.
 
-!!! note "Pipeline vs workflow"
-    `pipeline` is the explicit low-level execution language. For most multi-agent authoring, prefer `workflow` and let AgentLang lower it to a pipeline automatically. This tutorial stays with `pipeline` because it teaches the core execution model directly.
+> [!NOTE]
+> **Pipeline vs workflow**
+>
+> `pipeline` is the explicit low-level execution language. For most multi-agent authoring, prefer `workflow` and let AgentLang lower it to a pipeline automatically. This tutorial stays with `pipeline` because it teaches the core execution model directly.
 
 ## The goal
 
@@ -45,8 +47,10 @@ task route(intent: String, urgency: String) -> Obj{queue: String} {}
 task respond(intent: String, queue: String) -> Obj{reply: String} {}
 ```
 
-!!! note "Task bodies are always empty"
-    The `{}` body is intentional. Task *signatures* live in the DSL; task *behavior* is supplied by registered Rust handlers, native adapters, or the Python migration bridge at runtime. This separation keeps the language small and the runtime extensible.
+> [!NOTE]
+> **Task bodies are always empty**
+>
+> The `{}` body is intentional. Task *signatures* live in the DSL; task *behavior* is supplied by registered Rust handlers or native adapters at runtime. This separation keeps the language small and the runtime extensible.
 
 ## Step 3: Write the pipeline
 

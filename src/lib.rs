@@ -18,7 +18,6 @@ pub mod lexer;
 pub mod modules;
 pub mod package;
 pub mod parser;
-pub mod plugins;
 pub mod policy;
 pub mod runtime;
 pub mod stdlib;

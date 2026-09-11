@@ -1,0 +1,5 @@
+{
+  "source": "invalid/loop_continue_type.agent",
+  "phase": "reject",
+  "code": "AGL2001"
+}

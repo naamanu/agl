@@ -1,0 +1,6 @@
+{
+  "source": "valid/try_return.agent",
+  "phase": "execute",
+  "pipeline": "main",
+  "expected": 1
+}

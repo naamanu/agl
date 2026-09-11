@@ -170,8 +170,10 @@ try {
 
 Typed domain `Err` values do not enter `catch`. Structured catch is reserved for invocation, validation, timeout, assertion, and orchestration faults. Later runtime phases extend the same value with cancellation and budget categories without changing catch syntax.
 
+Match payload bindings, like optional and catch bindings, are restored on normal completion, return, break, continue, and execution error. Returning a payload preserves the already-evaluated value. Arms with non-normal completions do not contribute to the post-match normal environment.
+
 ## 8. Compatibility
 
-All checked-in AGL 0.2 examples remain accepted when the version header is absent or explicitly `0.2`. New syntax in an explicitly 0.2 file produces a migration diagnostic directing the author to opt into 0.3. The 0.2 JSON representations are unchanged.
+The shared completion-sensitive checking and binding-restoration corrections apply to every language version. Previously accepted programs with incompatible reachable returns, parallel sibling dependencies, or unsafe loop/catch bindings are rejected. All checked-in AGL 0.2 examples remain accepted when the version header is absent or explicitly `0.2`. New syntax in an explicitly 0.2 file produces a migration diagnostic directing the author to opt into 0.3. The 0.2 JSON representations are unchanged.
 
 The conformance fixtures under `tests/conformance/` and typed-domain-error integration test in `tests/agl03.rs` are executable requirements of this specification.

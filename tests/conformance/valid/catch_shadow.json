@@ -1,0 +1,9 @@
+{
+  "source": "valid/catch_shadow.agent",
+  "phase": "execute",
+  "pipeline": "main",
+  "input": {
+    "saved": "original"
+  },
+  "expected": "original"
+}

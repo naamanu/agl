@@ -41,8 +41,10 @@ Output:
 }
 ```
 
-!!! info "Mock mode"
-    By default, pipelines run in **mock mode** — all task handlers are deterministic local functions that return structured placeholders. No API key required.
+> [!NOTE]
+> **Mock mode**
+>
+> By default, pipelines run in **mock mode** — all task handlers are deterministic local functions that return structured placeholders. No API key required.
 
 ## 3. Run your first workflow
 
@@ -110,8 +112,10 @@ cargo run -- examples/reliability.agent resilient_brief \
 }
 ```
 
-!!! tip "What just happened?"
-    `fail_count: 5` exceeds the `retries 2` budget in the pipeline, so the `on_fail use` clause provides a fallback value. The `if/else` block then routes execution based on whether the fallback was used.
+> [!TIP]
+> **What just happened?**
+>
+> `fail_count: 5` exceeds the `retries 2` budget in the pipeline, so the `on_fail use` clause provides a fallback value. The `if/else` block then routes execution based on whether the fallback was used.
 
 ## 6. Start the REPL
 

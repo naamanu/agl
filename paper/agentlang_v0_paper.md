@@ -3,7 +3,7 @@
 **Author:** Nana Manu
 **Date:** March 2, 2026
 
-> **Implementation note (August 2026):** This paper describes the original v0 Python artifact and is historical rather than normative. AGL 0.2 uses the Rust compiler/runtime in `src/` as its normative implementation and retains Python only as a compatibility oracle for differential tests and plugin migration. See `spec/agl-0.2.md` for the versioned language contract and `docs/rust-port.md` for the current parity matrix. Historical measurements below are intentionally unchanged.
+> **Implementation note (August 2026):** This paper describes the original v0 Python artifact and is historical rather than normative. The current repository uses only the Rust compiler/runtime in `src/`. The Python artifact, CLI, plugins, and `paper/benchmark.py` have been removed; the paths and reproduction commands below describe the historical artifact and do not run against this checkout. See `spec/agl-0.6.md` for the current language contract and `docs/rust-port.md` for implementation status. Use `cargo bench --bench runtime` for current measurements. Historical measurements below are intentionally unchanged.
 
 ## Abstract
 

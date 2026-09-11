@@ -25,7 +25,7 @@ task investigate(topic: String) -> Obj{summary: String, sources: List[String]} b
 ## Rules
 
 - The body is always `{}`.
-- Standard tasks are supplied by the Rust `Registry`, native adapters, or the Python compatibility bridge at runtime.
+- Standard tasks are supplied by the Rust `Registry` or native adapters at runtime.
 - `task ... by agent {}` declares a model-executed task that must be run with an explicit `by <agent>` binding.
 - Task names must be unique within a file.
 - Parameter names must be unique within a task.
@@ -54,8 +54,8 @@ The following tasks are available out of the box:
 | `route` | Returns routing decision | Deterministic local handler |
 | `flaky_fetch` | Fails N times, then succeeds | Deterministic local handler |
 
-!!! note
-    `extract_intent`, `route`, and `flaky_fetch` are always deterministic regardless of adapter mode.
+> [!NOTE]
+> `extract_intent`, `route`, and `flaky_fetch` are always deterministic regardless of adapter mode.
 
 ## Agent tasks
 
@@ -73,7 +73,7 @@ task investigate(topic: String) -> Obj{summary: String, sources: List[String]} b
 ## Adding a new task
 
 1. Declare the signature in your `.agent` file.
-2. For deterministic native tasks, register a Rust handler in a `Registry`; use `--plugin` only when migrating an existing Python handler.
+2. For deterministic native tasks, register a Rust handler in a `Registry`. See [native extensions](../native-extensions.md) for an embedding example.
 3. For model-executed tasks, declare `by agent` and rely on the runtime-generated handler path.
 
 See [Contributing → Adding a Task](../contributing.md#adding-a-new-task) for the full checklist.

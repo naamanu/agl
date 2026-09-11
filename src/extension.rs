@@ -7,7 +7,6 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 pub const EXTENSION_API_VERSION: u32 = 1;
-pub const PYTHON_PROTOCOL_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ExtensionDescriptor {
@@ -76,19 +75,5 @@ pub trait Host {
             .register_contextual(name, move |args, agent, invocation| {
                 handler.execute(args, agent, invocation)
             });
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProtocolEnvelope<T> {
-    pub protocol: u32,
-    pub payload: T,
-}
-impl<T> ProtocolEnvelope<T> {
-    pub fn new(payload: T) -> Self {
-        Self {
-            protocol: PYTHON_PROTOCOL_VERSION,
-            payload,
-        }
     }
 }

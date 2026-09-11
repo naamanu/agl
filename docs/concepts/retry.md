@@ -54,8 +54,10 @@ let f = run flaky_fetch
   on_fail use { data: "fallback for " + topic };
 ```
 
-!!! warning "Type must match"
-    The fallback expression type must match the task's declared return type. This is enforced statically by the type checker.
+> [!WARNING]
+> **Type must match**
+>
+> The fallback expression type must match the task's declared return type. This is enforced statically by the type checker.
 
 ## Timeout and retries
 

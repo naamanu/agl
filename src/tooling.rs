@@ -246,7 +246,7 @@ fn lsp_edits(value: &Value) -> Value {
 }
 
 pub fn shell_completion(shell: &str) -> Result<String, String> {
-    let commands = "lsp protocol package api-compare completions repl --input --test --check --output-trace --adapter --trace-live --lower --effects --deployment --eval --update-baseline --event-store --execution-id --resume --approval --plugin --format --docs --api --policy --summary";
+    let commands = "lsp protocol package api-compare completions repl --input --test --check --output-trace --adapter --trace-live --lower --effects --deployment --eval --update-baseline --event-store --execution-id --resume --approval --format --docs --api --policy --summary";
     match shell {
         "bash" => Ok(format!("complete -W '{commands}' agl\n")),
         "zsh" => Ok(format!("compdef '_arguments *: :({commands})' agl\n")),

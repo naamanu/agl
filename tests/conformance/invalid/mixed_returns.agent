@@ -1,0 +1,2 @@
+language "0.2";
+pipeline main(flag: Bool) -> Number { if flag { return "bad"; } else { return 1; } }

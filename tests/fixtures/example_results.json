@@ -1,0 +1,35 @@
+[
+  {
+    "source": "examples/blog.agent",
+    "pipeline": "blog_post",
+    "inputs": {
+      "topic": "Rust agents"
+    },
+    "expected": "[writer] Draft article:\n[planner] key points for 'Rust agents'"
+  },
+  {
+    "source": "examples/support.agent",
+    "pipeline": "support_reply",
+    "inputs": {
+      "message": "urgent refund please"
+    },
+    "expected": "[triage] Routed as billing to billing-priority."
+  },
+  {
+    "source": "examples/compare.agent",
+    "pipeline": "compare_options",
+    "inputs": {
+      "query": "vector database"
+    },
+    "expected": "[reviewer] Option A vs B\nA: [planner] key points for 'vector database option A'\nB: [planner] key points for 'vector database option B'"
+  },
+  {
+    "source": "examples/reliability.agent",
+    "pipeline": "resilient_brief",
+    "inputs": {
+      "topic": "retries",
+      "fail_count": 1
+    },
+    "expected": "[ops] Draft article:\nFresh path: [ops] fetched payload for retries"
+  }
+]

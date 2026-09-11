@@ -42,7 +42,7 @@ Use `workflow` when you want to declare stage handoffs and review loops without 
 - Pipeline names must be unique within a file.
 - Every pipeline must have at least one reachable `return`.
 - Input params are bound from the CLI `--input` JSON.
-- The `return` expression type must match the declared return type.
+- Every reachable `return` expression must be assignable to the declared return type.
 
 ## Statements
 
@@ -89,7 +89,8 @@ Rules:
 
 - The condition must type-check to `Bool`.
 - `else` is optional.
-- The type checker does **not** assume a guaranteed return from an `if` without `else` — you must have a `return` reachable outside the `if` block, or include `else`.
+- In AGL 0.3–0.6, an `if` without `else` needs a return on its continuing path. AGL 0.2 retains its permissive fallthrough behavior.
+- A returning branch does not constrain the scope of the continuing branch. Only normal continuations are merged.
 
 ### `if let` — option unwrap
 

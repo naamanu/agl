@@ -1,0 +1,5 @@
+{
+  "source": "invalid/catch_prefix_type.agent",
+  "phase": "reject",
+  "code": "AGL2001"
+}

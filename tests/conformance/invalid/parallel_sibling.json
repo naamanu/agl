@@ -1,0 +1,5 @@
+{
+  "source": "invalid/parallel_sibling.agent",
+  "phase": "reject",
+  "code": "AGL2001"
+}

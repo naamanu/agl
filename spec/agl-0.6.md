@@ -26,11 +26,11 @@ The canonical formatter emits an equivalent program in declaration order normali
 
 The Rust extension API version is `1`. Stable contracts cover task handlers, tool handlers, model adapters, hosts, event stores, policy resolvers, and graders. Descriptors must match the host API version before registration. Native compile-time registration remains the default.
 
-The Python subprocess protocol is version `1`; every manifest, request, and response carries that version and mismatches fail closed. Deprecation requires equivalent native migration documentation and two minor releases of notice. WASI components remain deferred until evidence shows native/process contracts are insufficient.
+The language implementation and extension surface are Rust-only. The former Python subprocess bridge, protocol envelopes, and CLI `--plugin` option have been removed. Hosts register task and tool handlers through native registries. WASI components remain deferred until evidence shows native contracts are insufficient.
 
 ## 5. Deployment security
 
-A deployment policy can restrict effects, tools, network hosts, and filesystem roots and can require approval for external writes. Static summaries expose each pipeline's inferred effects, external-write status, and approval boundary. Secrets are redacted before trace/event persistence. Native Rust is trusted in-process; Python is process-isolated but inherits host OS permissions; future WASI extensions would receive explicit capabilities only.
+A deployment policy can restrict effects, tools, network hosts, and filesystem roots and can require approval for external writes. Static summaries expose each pipeline's inferred effects, external-write status, and approval boundary. Secrets are redacted before trace/event persistence. Native Rust is trusted in-process; future WASI extensions would receive explicit capabilities only.
 
 ## 6. Compatibility
 

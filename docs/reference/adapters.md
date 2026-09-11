@@ -190,5 +190,7 @@ Execution error: Task 'draft_response_plan' by agent 'researcher' failed after 1
 
 The `--adapter openai` or `--adapter anthropic` flag enables the respective adapter. `--adapter live` remains an alias for OpenAI compatibility.
 
-!!! warning "Security"
-    Never hardcode `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` in `.agent` files, source code, or documentation. Use environment variables or your shell profile.
+> [!WARNING]
+> **Security**
+>
+> Never hardcode `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` in `.agent` files, source code, or documentation. Use environment variables or your shell profile.

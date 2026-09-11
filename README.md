@@ -1,163 +1,94 @@
 # AgentLang
 
-A tiny, self-contained DSL for agentic workflows. Define agents, typed tasks, declarative workflows, and low-level pipelines. The primary implementation is a native Rust library and CLI with native OpenAI and Anthropic adapters; the original Python implementation remains as a compatibility oracle and plugin-migration bridge.
-
-```agentlang
-tool web_search(query: String) -> List[Obj{title: String, url: String, snippet: String}] {}
-
-agent researcher {
-  model: "gpt-4.1"
-  , tools: [web_search]
-}
-
-agent reviewer {
-  model: "gpt-4.1-mini"
-  , tools: [web_search]
-}
-
-agent writer {
-  model: "gpt-4.1-mini"
-  , tools: []
-}
-
-task draft_outline(topic: String) -> Obj{outline: String, sources: List[String]} by agent {}
-task review_approved_outline(topic: String, outline: String, sources: List[String]) -> Obj{approved: Bool, feedback: String} by agent {}
-task revise_outline(topic: String, outline: String, sources: List[String], feedback: String) -> Obj{outline: String, sources: List[String]} by agent {}
-task write_post(topic: String, outline: String) -> Obj{article: String} by agent {}
-
-workflow blog_post(topic: String) -> String {
-  stage draft = researcher does draft_outline(topic);
-  review approved_outline = reviewer checks draft revise with researcher using revise_outline max_rounds 2;
-  stage post = writer does write_post(topic, approved_outline.outline);
-  return post.article;
-}
-```
-
-![blog pipeline](docs/assets/screenshots/blog.png)
-
----
-
-## Features
-
-- **Static type checker** — catches bad arguments, wrong field access, and return type mismatches before execution
-- **Type aliases & enums** — `type Notes = Obj{...};` and `enum Tone { formal, casual };` for cleaner signatures
-- **Declarative workflows** — `workflow`, `stage`, and `review` compile into explicit pipeline IR
-- **Parallel execution** — `parallel { } join` with optional per-block `max_concurrency`
-- **Structured concurrency** — ordered bounded `parallel map`, cancellable `race`, scoped budgets, groups, and rate limits
-- **Durable workflows** — SQLite checkpoints, crash-safe replay, stable identities, and persisted human approvals
-- **Typed outcomes & effects** — records, unions, `Result`, exhaustive `match`, capability inference, and safe idempotent retries
-- **Provider-neutral deployment** — source requirements are validated against external OpenAI or Anthropic bindings
-- **Modules & reproducible packages** — qualified imports, visibility, cached interfaces, manifests, locks, and API compatibility
-- **Editor tooling** — canonical formatter, JSON compiler protocol, LSP, tree-sitter grammar, and shell completions
-- **Shorthand syntax** — `let r = task(args) by agent;` as concise alternative to `run ... with`
-- **Loop control** — `while`, `break`, and `continue` are available in lowered pipelines and low-level authoring
-- **Retry & fallback** — `retries N on_fail use <expr>` as first-class syntax
-- **Try/catch** — `try { ... } catch err { ... }` for multi-step error recovery
-- **Pipeline composition** — pipelines can call other pipelines with `run sub_pipeline with {...}`
-- **Assert & test blocks** — `assert expr, "msg";` and `test "name" { ... }` for in-language testing
-- **Typed agent tasks** — `task ... by agent {}` enforces declared output shapes at runtime; `model` is optional
-- **Embeddable handler registry** — Rust applications register native task handlers through the public `Registry` API
-- **Observability** — `--output-trace` writes structured JSON execution traces
-- **Native live adapters** — OpenAI Responses and Anthropic Messages clients with validated web-tool calling
-- **Plugin migration bridge** — existing Python task plugins continue to work through `--plugin`
-- **Small dependency surface** — the Rust core uses `serde`, `serde_json`, `thiserror`, `clap`, `tokio`, and `reqwest`
-
----
-
-## Examples
-
-### Parallel comparison
-
-Two research tasks run concurrently, results merged for a downstream compare step.
-
-![compare pipeline](docs/assets/screenshots/compare.png)
-
-### Retry with fallback
-
-`fail_count: 1` — succeeds within the retry budget:
-
-![reliability success](docs/assets/screenshots/reliability_success.png)
-
-`fail_count: 5` — exhausts retries, uses fallback value:
-
-![reliability fallback](docs/assets/screenshots/reliability_fallback.png)
-
-### Input validation
-
-Strict validation before execution runs:
-
-![error missing input](docs/assets/screenshots/error_missing_input.png)
-
----
+AgentLang (AGL) is a typed language for agentic workflows, implemented as a Rust
+library and CLI. Define agents and tasks, compose them into workflows or pipelines,
+and run them with deterministic mock handlers or native OpenAI and Anthropic adapters.
 
 ## Quick start
 
+The repository pins Rust 1.94.1 in [rust-toolchain.toml](rust-toolchain.toml).
+From the repository root, run a pipeline in mock mode—no API key required:
+
 ```bash
-# build and test the native implementation
-cargo build --release
-cargo test
-cargo install --path .
-
-# deterministic mock mode — no API key needed
-cargo run -- examples/blog.agent blog_post --input '{"topic":"agent memory patterns"}'
-cargo run -- examples/compare.agent compare_options --input '{"query":"vector database"}'
-cargo run -- examples/support.agent support_reply --input '{"message":"urgent refund request"}'
-cargo run -- examples/reliability.agent resilient_brief --input '{"topic":"api-status","fail_count":1}'
-
-# parse and statically check without running
-cargo run -- examples/showcase_all_features.agent --check
-
-# run test blocks
-cargo run -- examples/showcase_all_features.agent --test
-
-# write execution trace
-cargo run -- examples/blog.agent blog_post --input '{"topic":"AI safety"}' --output-trace trace.json
-
-# native live mode — requires the provider API key
-export OPENAI_API_KEY="..."
-cargo run -- examples/incident_runbook.agent respond_to_incident --adapter openai --trace-live --input '{"incident":"database failover drill"}'
-
-# Anthropic and existing Python task plugins
-export ANTHROPIC_API_KEY="..."
-cargo run -- examples/multiagent_blog.agent publish_topic_blog --adapter anthropic --input '{"topic":"agent memory"}'
-cargo run -- examples/showcase_all_features.agent --test --plugin examples/showcase_plugin.py
-
-# interactive session and workflow lowering
-cargo run -- repl
-cargo run -- examples/newsletter.agent weekly_newsletter --lower
+cargo run --locked -- examples/blog.agent blog_post \
+  --input '{"topic":"agent memory patterns"}'
 ```
 
-See [Rust port status](docs/rust-port.md) for the parity matrix and migration notes.
+The [blog example](examples/blog.agent) connects two typed tasks:
 
-Native extension guidance is in [docs/native-extensions.md](docs/native-extensions.md); release gates are in [docs/releasing.md](docs/releasing.md). The post-port language work is tracked in the [AGL language roadmap](docs/roadmap.md).
+```agentlang
+agent planner { model: "gpt-4.1", tools: [web_search] }
+agent writer { model: "gpt-4.1-mini", tools: [] }
 
----
+tool web_search(query: String) -> List[Obj{title: String, url: String, snippet: String}] {}
+task research(topic: String) -> Obj{notes: String} {}
+task draft(notes: String) -> Obj{article: String} {}
 
-## Project layout
-
-```text
-src/
-  ast.rs        -- typed Rust AST
-  lexer.rs      -- tokenizer + string decoder
-  parser.rs     -- parser, shorthand resolution, workflow lowering
-  checker.rs    -- static type checker
-  runtime.rs    -- concurrent pipeline executor + native Registry
-  stdlib.rs     -- deterministic task handlers
-  context.rs    -- structured execution traces
-  adapters/     -- OpenAI, Anthropic, and validated web tools
-  formatter.rs  -- canonical source and lowered pipeline formatters
-  plugins.rs    -- Python task/tool-plugin migration bridge
-  lib.rs        -- public embedding API
-  main.rs       -- native CLI
-agentlang/
-  ...           -- original Python reference implementation and live adapters
-examples/       -- nineteen runnable .agent programs
-docs/           -- full documentation (MkDocs)
-main.py         -- legacy Python compatibility CLI
+pipeline blog_post(topic: String) -> String {
+  let r = run research with { topic: topic } by planner;
+  let d = run draft with { notes: r.notes } by writer;
+  return d.article;
+}
 ```
+
+Check a program without executing it, or run its embedded test blocks:
+
+```bash
+cargo run --locked -- examples/showcase_all_features.agent --check
+cargo run --locked -- examples/showcase_all_features.agent --test
+```
+
+For live execution, see [provider setup](docs/reference/adapters.md).
+To install the CLI locally, run `cargo install --path . --locked`.
+
+## Language and tooling
+
+- **Typed programs:** records, enums, unions, `Result`, pattern matching, and static checks for task arguments and pipeline returns.
+- **Workflow composition:** declarative stages and review loops, explicit pipelines, parallel calls, and pipeline-to-pipeline calls.
+- **Error handling:** retries, fallback values, and `try`/`catch`.
+- **Testing and inspection:** assertions, embedded test blocks, deterministic mock execution, and JSON traces.
+- **Native integration:** Rust task and tool registries, plus OpenAI and Anthropic adapters.
+- **Developer tools:** formatter, REPL, language server, tree-sitter grammar, and module/package support.
+
+## Examples
+
+| Example | Demonstrates |
+| --- | --- |
+| [Blog](examples/blog.agent) | Research followed by drafting |
+| [Newsletter](examples/newsletter.agent) | Declarative workflow stages |
+| [Comparison](examples/compare.agent) | Parallel research and a combined result |
+| [Reliability](examples/reliability.agent) | Retries and fallback values |
+| [Native embedding](examples/native_embed.rs) | Registering Rust handlers |
+
+See the [example guide](docs/reference/examples.md) for inputs and commands.
 
 ## Documentation
 
-Full docs at **https://nanamanu.com/agl**
+Read the [documentation](https://nanamanu.com/agl), or browse the sources:
 
-Covers: [Quick Start](docs/tutorial/quickstart.md) · [Language Reference](docs/reference/language.md) · [Adapters](docs/reference/adapters.md) · [Formal Semantics](docs/advanced/semantics.md) · [Contributing](docs/contributing.md)
+- [Quick start](docs/tutorial/quickstart.md) and [language reference](docs/reference/language.md)
+- [CLI reference](docs/reference/cli.md) and [native extensions](docs/native-extensions.md)
+- [Versioned specifications](spec/) and [sequential core semantics](docs/advanced/core-semantics.md)
+- [Language roadmap](docs/roadmap.md) and [contributing guide](CONTRIBUTING.md)
+
+The documentation uses mdBook 0.5.4. Follow the
+[installation instructions](docs/contributing.md#building-the-documentation), then
+build or preview from the repository root:
+
+```bash
+mdbook build
+mdbook serve --open
+```
+
+## Development
+
+The compiler, runtime, and CLI live in `src/`; Rust tests are in `tests/`.
+Run the standard checks with:
+
+```bash
+cargo fmt --all -- --check
+cargo clippy --all-targets --all-features --locked -- -D warnings
+cargo test --locked
+```
+
+Licensed under [MIT](LICENSE).

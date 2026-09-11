@@ -173,7 +173,9 @@ cargo run -- examples/blog.agent blog_post \
 # Execution error: Pipeline 'blog_post' input 'topic' has invalid value 42 for type String.
 ```
 
-!!! note "`Bool` vs `Number`"
-    JSON booleans are distinct from JSON numbers. AgentLang's `Number` type **excludes** booleans—passing `true` where a `Number` is expected is a type error.
+> [!NOTE]
+> **`Bool` vs `Number`**
+>
+> JSON booleans are distinct from JSON numbers. AgentLang's `Number` type **excludes** booleans—passing `true` where a `Number` is expected is a type error.
 
 ## Next: [Parallel Execution](parallel.md)

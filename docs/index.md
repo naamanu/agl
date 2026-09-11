@@ -56,15 +56,13 @@ Most "agent frameworks" hide the execution model behind layers of abstraction. A
 
 ## Where to start
 
-<div class="grid cards" markdown>
-
 -   **New to AgentLang?**
 
     ---
 
     Follow the tutorial to run your first pipeline or workflow in under five minutes.
 
-    [:octicons-arrow-right-24: Quick Start](tutorial/quickstart.md)
+    [Quick Start](tutorial/quickstart.md)
 
 -   **Learn the language**
 
@@ -72,7 +70,7 @@ Most "agent frameworks" hide the execution model behind layers of abstraction. A
 
     Understand agents, tasks, workflows, pipelines, the type system, and parallel execution.
 
-    [:octicons-arrow-right-24: Concepts](concepts/agents.md)
+    [Concepts](concepts/agents.md)
 
 -   **Connect to OpenAI or Anthropic**
 
@@ -80,7 +78,7 @@ Most "agent frameworks" hide the execution model behind layers of abstraction. A
 
     Switch from deterministic mock mode to live LLM adapters.
 
-    [:octicons-arrow-right-24: Adapters](reference/adapters.md)
+    [Adapters](reference/adapters.md)
 
 -   **Read the full reference**
 
@@ -88,6 +86,4 @@ Most "agent frameworks" hide the execution model behind layers of abstraction. A
 
     Complete syntax, CLI flags, and runtime semantics.
 
-    [:octicons-arrow-right-24: Language Reference](reference/language.md)
-
-</div>
+    [Language Reference](reference/language.md)

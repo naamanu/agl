@@ -1,0 +1,63 @@
+[book]
+title = "AgentLang"
+authors = ["Nana Adjei Manu"]
+description = "A tiny DSL for agentic workflows — agents, typed tasks, workflows, and pipelines."
+language = "en"
+src = "docs"
+
+[build]
+build-dir = "book"
+create-missing = false
+
+[output.html]
+default-theme = "light"
+preferred-dark-theme = "navy"
+mathjax-support = true
+# Keep TeX prime markers as ASCII apostrophes.
+smart-punctuation = false
+no-section-label = true
+git-repository-url = "https://github.com/naamanu/agl"
+edit-url-template = "https://github.com/naamanu/agl/edit/main/{path}"
+site-url = "/agl/"
+
+[output.html.playground]
+runnable = false
+
+# Preserve the directory URLs used by the previous documentation site.
+[output.html.redirect]
+"tutorial/quickstart/index.html" = "../quickstart.html"
+"tutorial/first-pipeline/index.html" = "../first-pipeline.html"
+"concepts/agents/index.html" = "../agents.html"
+"concepts/tasks/index.html" = "../tasks.html"
+"concepts/workflows/index.html" = "../workflows.html"
+"concepts/pipelines/index.html" = "../pipelines.html"
+"concepts/types/index.html" = "../types.html"
+"concepts/parallel/index.html" = "../parallel.html"
+"concepts/retry/index.html" = "../retry.html"
+"concepts/effects/index.html" = "../effects.html"
+"concepts/retries-and-budgets/index.html" = "../retries-and-budgets.html"
+"concepts/evaluation/index.html" = "../evaluation.html"
+"concepts/structured-concurrency/index.html" = "../structured-concurrency.html"
+"concepts/durable-workflows/index.html" = "../durable-workflows.html"
+"concepts/modules-and-packages/index.html" = "../modules-and-packages.html"
+"concepts/editor-tooling/index.html" = "../editor-tooling.html"
+"concepts/extensions-and-security/index.html" = "../extensions-and-security.html"
+"concepts/deployment/index.html" = "../deployment.html"
+"concepts/error-handling/index.html" = "../error-handling.html"
+"concepts/testing/index.html" = "../testing.html"
+"concepts/plugins/index.html" = "../plugins.html"
+"concepts/observability/index.html" = "../observability.html"
+"reference/language/index.html" = "../language.html"
+"migrations/0.3-to-0.6/index.html" = "../0.3-to-0.6.html"
+"reference/cli/index.html" = "../cli.html"
+"reference/adapters/index.html" = "../adapters.html"
+"reference/runtime/index.html" = "../runtime.html"
+"reference/examples/index.html" = "../examples.html"
+"rust-port/index.html" = "../rust-port.html"
+"native-extensions/index.html" = "../native-extensions.html"
+"releasing/index.html" = "../releasing.html"
+"advanced/semantics/index.html" = "../semantics.html"
+"advanced/core-semantics/index.html" = "../core-semantics.html"
+"advanced/real_tool_calling_plan/index.html" = "../real_tool_calling_plan.html"
+"roadmap/index.html" = "../roadmap.html"
+"contributing/index.html" = "../contributing.html"

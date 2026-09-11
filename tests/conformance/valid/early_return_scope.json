@@ -1,0 +1,9 @@
+{
+  "source": "valid/early_return_scope.agent",
+  "phase": "execute",
+  "pipeline": "main",
+  "input": {
+    "flag": false
+  },
+  "expected": "late"
+}

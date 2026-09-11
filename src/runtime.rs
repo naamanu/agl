@@ -730,13 +730,9 @@ fn block(
                         x => return Ok(x),
                     }
                 } else {
-                    let old = env.insert(binding.clone(), v);
-                    let f = block(then_body, p, env, reg, ctx, depth, execution_id, budget)?;
-                    if let Some(x) = old {
-                        env.insert(binding.clone(), x);
-                    } else {
-                        env.remove(binding);
-                    }
+                    let f = with_bindings(env, vec![(binding.clone(), v)], |env| {
+                        block(then_body, p, env, reg, ctx, depth, execution_id, budget)
+                    })?;
                     if !matches!(f, Flow::Next) {
                         return Ok(f);
                     }
@@ -762,19 +758,21 @@ fn block(
                 catch_body,
                 ..
             } => {
-                if let Err(e) = block(try_body, p, env, reg, ctx, depth, execution_id, budget) {
-                    env.insert(
-                        error_var.clone(),
-                        if *structured {
-                            e.as_value()
+                let flow = match block(try_body, p, env, reg, ctx, depth, execution_id, budget) {
+                    Ok(flow) => flow,
+                    Err(error) => {
+                        let value = if *structured {
+                            error.as_value()
                         } else {
-                            Value::String(e.to_string())
-                        },
-                    );
-                    let f = block(catch_body, p, env, reg, ctx, depth, execution_id, budget)?;
-                    if !matches!(f, Flow::Next) {
-                        return Ok(f);
+                            Value::String(error.to_string())
+                        };
+                        with_bindings(env, vec![(error_var.clone(), value)], |env| {
+                            block(catch_body, p, env, reg, ctx, depth, execution_id, budget)
+                        })?
                     }
+                };
+                if !matches!(flow, Flow::Next) {
+                    return Ok(flow);
                 }
             }
             Stmt::Match { value, arms, .. } => {
@@ -794,23 +792,22 @@ fn block(
                     .iter()
                     .find(|arm| arm.type_name == type_name && arm.variant == variant)
                     .ok_or_else(|| fail(format!("no match arm for '{type_name}::{variant}'")))?;
-                let mut previous = Vec::new();
-                for binding in &arm.bindings {
-                    let value = object.get(binding).cloned().ok_or_else(|| {
-                        fail(format!(
-                            "variant '{type_name}::{variant}' has no '{binding}'"
-                        ))
-                    })?;
-                    previous.push((binding.clone(), env.insert(binding.clone(), value)));
-                }
-                let flow = block(&arm.body, p, env, reg, ctx, depth, execution_id, budget)?;
-                for (binding, old) in previous {
-                    if let Some(value) = old {
-                        env.insert(binding, value);
-                    } else {
-                        env.remove(&binding);
-                    }
-                }
+                // Validate every payload field before installing any temporary bindings.
+                let bindings = arm
+                    .bindings
+                    .iter()
+                    .map(|binding| {
+                        let value = object.get(binding).cloned().ok_or_else(|| {
+                            fail(format!(
+                                "variant '{type_name}::{variant}' has no '{binding}'"
+                            ))
+                        })?;
+                        Ok((binding.clone(), value))
+                    })
+                    .collect::<Result<Vec<_>, ExecutionError>>()?;
+                let flow = with_bindings(env, bindings, |env| {
+                    block(&arm.body, p, env, reg, ctx, depth, execution_id, budget)
+                })?;
                 if !matches!(flow, Flow::Next) {
                     return Ok(flow);
                 }
@@ -832,6 +829,30 @@ fn block(
     }
     Ok(Flow::Next)
 }
+// Restore lexical bindings before propagating either a completion or an error.
+fn with_bindings(
+    env: &mut BTreeMap<String, Value>,
+    bindings: Vec<(String, Value)>,
+    execute: impl FnOnce(&mut BTreeMap<String, Value>) -> Result<Flow, ExecutionError>,
+) -> Result<Flow, ExecutionError> {
+    let previous: Vec<_> = bindings
+        .into_iter()
+        .map(|(name, value)| {
+            let old = env.insert(name.clone(), value);
+            (name, old)
+        })
+        .collect();
+    let result = execute(env);
+    for (name, old) in previous.into_iter().rev() {
+        if let Some(value) = old {
+            env.insert(name, value);
+        } else {
+            env.remove(&name);
+        }
+    }
+    result
+}
+
 #[allow(clippy::too_many_arguments)] // Invocation execution needs the enclosing runtime scope.
 fn run(
     r: &RunStmt,

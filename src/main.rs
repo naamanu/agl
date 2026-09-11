@@ -4,7 +4,6 @@ use agl::deployment::DeploymentConfig;
 use agl::diagnostic::{RenderedDiagnostic, render_diagnostic};
 use agl::evaluation::{EvalBaseline, run_evaluation};
 use agl::event_store::SqliteEventStore;
-use agl::plugins::load_python_plugin_with_tools;
 use agl::stdlib::{AdapterMode, registry_for_with_tools};
 use agl::{
     analyze_program, check_program, execute_pipeline_async, format_pipeline, infer_program_effects,
@@ -63,8 +62,6 @@ struct Cli {
     policy: Option<PathBuf>,
     #[arg(long)]
     summary: bool,
-    #[arg(long = "plugin")]
-    plugins: Vec<String>,
 }
 
 #[derive(Parser)]
@@ -76,8 +73,6 @@ struct ReplCli {
     trace_live: bool,
     #[arg(long)]
     deployment: Option<PathBuf>,
-    #[arg(long = "plugin")]
-    plugins: Vec<String>,
 }
 
 fn main() {
@@ -236,8 +231,7 @@ fn repl() -> Result<(), Box<dyn std::error::Error>> {
                     let raw: Value = serde_json::from_str(raw_input.trim())?;
                     let object = raw.as_object().ok_or("input JSON must be an object")?;
                     let inputs = object.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-                    let registry =
-                        build_registry(program, mode, args.trace_live, &args.plugins, None)?;
+                    let registry = build_registry(program, mode, args.trace_live, None)?;
                     Ok(execute_async(
                         program,
                         name,
@@ -361,7 +355,6 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         &program,
         cli.adapter.parse::<AdapterMode>()?,
         cli.trace_live,
-        &cli.plugins,
         policy,
     )?;
     if let Some(name) = &cli.eval {
@@ -503,18 +496,11 @@ fn build_registry(
     program: &agl::ast::Program,
     mode: AdapterMode,
     trace_live: bool,
-    plugins: &[String],
     policy: Option<Arc<agl::policy::DeploymentPolicy>>,
 ) -> Result<agl::Registry, Box<dyn std::error::Error>> {
     let mut tools = default_tool_registry(Duration::from_secs(15))?;
     if let Some(policy) = policy {
         tools.set_policy(policy);
     }
-    let mut plugin_tasks = agl::Registry::default();
-    for plugin in plugins {
-        load_python_plugin_with_tools(&mut plugin_tasks, Some(&mut tools), plugin.clone())?;
-    }
-    let mut registry = registry_for_with_tools(program, mode, trace_live, tools)?;
-    registry.extend(plugin_tasks);
-    Ok(registry)
+    Ok(registry_for_with_tools(program, mode, trace_live, tools)?)
 }
